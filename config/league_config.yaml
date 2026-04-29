@@ -1,0 +1,70 @@
+# League-Specific Configuration
+# Phase 3 Specialization - Optimized for Core Leagues
+
+LEAGUE_CONFIGS = {
+    # Core leagues with positive ROI
+    "BL1": {
+        "competition_id": 7,
+        "name": "Bundesliga",
+        "threshold": 0.55,
+        "min_confidence": 0.55,
+        "max_bets_per_day": 5,
+        "ev_minimum": 0.02,
+        "ensemble_weights": {
+            "xgboost": 0.4,
+            "lightgbm": 0.35,
+            "logreg": 0.25,
+        },
+    },
+    "PL": {
+        "competition_id": 3,
+        "name": "Premier League", 
+        "threshold": 0.50,
+        "min_confidence": 0.50,
+        "max_bets_per_day": 5,
+        "ev_minimum": 0.02,
+        "ensemble_weights": {
+            "xgboost": 0.4,
+            "lightgbm": 0.4,
+            "logreg": 0.2,
+        },
+    },
+    # Watch leagues - use higher thresholds, lower confidence
+    "PD": {
+        "competition_id": 12,
+        "name": "La Liga",
+        "threshold": 0.65,  # Higher threshold = fewer but more confident
+        "min_confidence": 0.65,
+        "max_bets_per_day": 2,
+        "ev_minimum": 0.05,
+        "enabled": False,  # Disabled for production
+    },
+    "SA": {
+        "competition_id": 8,
+        "name": "Serie A",
+        "threshold": 0.70,
+        "min_confidence": 0.70,
+        "max_bets_per_day": 0,  # Disabled
+        "ev_minimum": 0.10,
+        "enabled": False,
+    },
+    "FL1": {
+        "competition_id": 6,
+        "name": "Ligue 1",
+        "threshold": 0.65,
+        "min_confidence": 0.65,
+        "max_bets_per_day": 2,
+        "ev_minimum": 0.05,
+        "enabled": False,
+    },
+}
+
+# Default fallback config
+DEFAULT_CONFIG = {
+    "threshold": 0.55,
+    "min_confidence": 0.55,
+    "enabled": True,
+}
+
+# Core leagues to bet on
+ENABLED_LEAGUES = ["BL1", "PL"]

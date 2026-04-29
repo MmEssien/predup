@@ -1,0 +1,44 @@
+# Database
+database:
+  host: localhost
+  port: 5432
+  name: predup
+  pool_size: 5
+  max_overflow: 10
+
+# API Configuration
+api:
+  football:
+    base_url: https://api.football-data-org/v4
+    timeout: 30
+    retry_attempts: 3
+  weather:
+    base_url: https://api.open-meteo.com/v1
+    timeout: 15
+  odds:
+    base_url: https://api.the-odds-api.com/v4
+    timeout: 15
+    cache_ttl_minutes: 60
+    sports:
+      - soccer_england_premier_league
+      - soccer_germany_bundesliga
+      - soccer_spain_la_liga
+      - soccer_italy_serie_a
+      - soccer_france_ligue_1
+  rate_limit: 10
+
+# Model Configuration
+model:
+  min_confidence: 0.75
+  test_split: 0.3
+  random_state: 42
+  ensemble_weights:
+    xgboost: 0.4
+    lightgbm: 0.4
+    logreg: 0.2
+
+# Feature Engineering
+features:
+  lookback_forms: [5, 10]
+  lookback_h2h: 10
+  lookback_venue: 20
