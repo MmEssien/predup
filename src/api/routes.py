@@ -488,7 +488,6 @@ async def evaluate_prediction(
 # ============ Frontend Dashboard Endpoints ============
 
 @router.get("/dashboard")
-@router.get("/dashboard")
 async def get_dashboard(db: Session = Depends(get_db)):
     """Get dashboard statistics for frontend computed live from DB"""
     from src.utils.helpers import get_today_range_utc
@@ -637,42 +636,6 @@ async def get_historical_picks(
             "clv_percent": 1.3,
             "created_at": convert_to_lagos_time(pred.predicted_at).isoformat(),
             "settled_at": convert_to_lagos_time(pred.settled_at).isoformat(),
-        })
-    
-    return results
-    
-    results = []
-    for pred in predictions:
-        fixture = db.query(Fixture).filter(Fixture.id == pred.fixture_id).first()
-        
-        results.append({
-            "fixture_id": pred.fixture_id,
-            "fixture": {
-                "id": fixture.id if fixture else None,
-                "external_id": fixture.external_id if fixture else None,
-                "date": fixture.utc_date.isoformat() if fixture else None,
-                "home_team": fixture.home_team.name if fixture and fixture.home_team else "Unknown",
-                "away_team": fixture.away_team.name if fixture and fixture.away_team else "Unknown",
-                "status": fixture.status if fixture else "FINISHED",
-                "home_score": fixture.home_score if fixture else None,
-                "away_score": fixture.away_score if fixture else None,
-            } if fixture else None,
-            "sport": "football",
-            "league": "BL1",
-            "predicted_value": str(pred.predicted_value) if pred.predicted_value else "Unknown",
-            "probability": pred.probability or 0.5,
-            "confidence": "medium",
-            "is_accepted": pred.is_accepted,
-            "ev": 5.2,
-            "kelly_pct": 2.0,
-            "odds_taken": 1.85,
-            "closing_odds": 1.90,
-            "result": "win" if pred.is_correct else "loss",
-            "profit": 45.0 if pred.is_correct else -50.0,
-            "clv": 2.5,
-            "clv_percent": 1.3,
-            "created_at": pred.predicted_at.isoformat() if pred.predicted_at else None,
-            "settled_at": pred.settled_at.isoformat() if pred.settled_at else None,
         })
     
     return results
