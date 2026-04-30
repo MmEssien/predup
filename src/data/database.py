@@ -1,8 +1,9 @@
 """Database models for PredUp"""
 
-from datetime import datetime
+from datetime import datetime, date
+
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey,
+    Column, Integer, String, Date, DateTime, ForeignKey,
     Boolean, Float, Text, Index, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship, declarative_base
