@@ -802,119 +802,6 @@ async def get_dashboard(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Dashboard calculation error: {str(e)}")
 
 
-@router.get("/predictions/live")
-async def get_live_predictions(
-    sport: str = None,
-    min_ev: float = 0,
-    confidence: str = None,
-):
-    """Get live predictions - returns sample data for demo"""
-    from datetime import timedelta
-    
-    now = datetime.utcnow()
-    return [
-        {
-            "fixture_id": 1,
-            "sport": "football",
-            "league": "BL1",
-            "home_team": "Bayern Munich",
-            "away_team": "Dortmund",
-            "start_time": (now + timedelta(hours=2)).isoformat(),
-            "home_odds": 1.45,
-            "away_odds": 2.85,
-            "model_probability": 0.68,
-            "implied_prob": 0.58,
-            "ev_percent": 10.2,
-            "kelly_percent": 4.2,
-            "recommended_side": "Bayern Munich",
-            "confidence_score": "high",
-            "odds_source": "The Odds API",
-        },
-        {
-            "fixture_id": 2,
-            "sport": "football",
-            "league": "PL",
-            "home_team": "Manchester City",
-            "away_team": "Liverpool",
-            "start_time": (now + timedelta(hours=4)).isoformat(),
-            "home_odds": 2.10,
-            "away_odds": 3.40,
-            "model_probability": 0.52,
-            "implied_prob": 0.48,
-            "ev_percent": 5.8,
-            "kelly_percent": 2.1,
-            "recommended_side": "Manchester City",
-            "confidence_score": "medium",
-            "odds_source": "The Odds API",
-        },
-        {
-            "fixture_id": 3,
-            "sport": "nba",
-            "league": "NBA",
-            "home_team": "Lakers",
-            "away_team": "Warriors",
-            "start_time": (now + timedelta(hours=6)).isoformat(),
-            "home_odds": 1.95,
-            "away_odds": 1.95,
-            "model_probability": 0.55,
-            "implied_prob": 0.50,
-            "ev_percent": 6.2,
-            "kelly_percent": 2.8,
-            "recommended_side": "Lakers",
-            "confidence_score": "medium",
-            "odds_source": "SportsGameOdds",
-        },
-    ]
-
-
-@router.get("/predictions/history")
-async def get_historical_picks(
-    db: Session = Depends(get_db),
-    limit: int = 50
-):
-    """Get historical settled picks from the database"""
-    from src.utils.helpers import convert_to_lagos_time
-    
-    # Query settled predictions (where settled_at is not null)
-    predictions = db.query(Prediction).filter(
-        Prediction.settled_at.isnot(None)
-    ).order_by(desc(Prediction.settled_at)).limit(limit).all()
-    
-    results = []
-    for pred in predictions:
-        fixture = pred.fixture
-        results.append({
-            "fixture_id": pred.fixture_id,
-            "fixture": {
-                "id": fixture.id,
-                "external_id": fixture.external_id,
-                "date": convert_to_lagos_time(fixture.utc_date).isoformat(),
-                "home_team": fixture.home_team.name if fixture.home_team else "Unknown",
-                "away_team": fixture.away_team.name if fixture.away_team else "Unknown",
-                "status": fixture.status,
-                "home_score": fixture.home_score,
-                "away_score": fixture.away_score,
-            },
-            "sport": fixture.competition.area_name.lower() if fixture.competition and fixture.competition.area_name else "football",
-            "league": fixture.competition.code if fixture.competition else "Unknown",
-            "predicted_value": str(pred.predicted_value),
-            "probability": pred.probability,
-            "confidence": "high" if pred.probability > 0.7 else "medium",
-            "is_accepted": pred.is_accepted,
-            "ev": 5.0, # Placeholder until EV logic is implemented
-            "kelly_pct": 2.0, # Placeholder until Kelly logic is implemented
-            "odds_taken": 1.85, # Placeholder
-            "closing_odds": 1.90, # Placeholder
-            "result": "win" if pred.is_correct else "loss",
-            "profit": 45.0 if pred.is_correct else -50.0, # Placeholder
-            "clv": 2.5,
-            "clv_percent": 1.3,
-            "created_at": convert_to_lagos_time(pred.predicted_at).isoformat(),
-            "settled_at": convert_to_lagos_time(pred.settled_at).isoformat(),
-        })
-    
-    return results
-
 
 @router.get("/performance")
 async def get_performance_metrics(db: Session = Depends(get_db)):
@@ -930,21 +817,17 @@ async def get_performance_metrics(db: Session = Depends(get_db)):
     wins = db.query(Prediction).filter(Prediction.is_correct.is_(True)).count()
     win_rate = (wins / total_bets) * 100
     
-    # Static placeholders for complex aggregates for now
+    # Static — will be replaced by settlement service when predictions exist
     return {
         "total_bets": total_bets,
         "win_rate": round(win_rate, 1),
-        "total_roi": 3.8, # Logic for ROI calculation needed
-        "avg_clv": 2.4,
-        "roi_over_time": [
-            {"date": "2026-04-28", "roi": 3.8},
-        ],
+        "total_roi": 0.0,
+        "avg_clv": 0.0,
+        "roi_over_time": [],
         "win_rate_by_sport": [
             {"sport": "Football", "win_rate": round(win_rate, 1), "bets": total_bets},
         ],
-        "profit_by_month": [
-            {"month": "Apr", "profit": wins * 10},
-        ],
+        "profit_by_month": [],
     }
 
 
@@ -963,7 +846,7 @@ async def get_fixture_detail(
     prediction = db.query(Prediction).filter(Prediction.fixture_id == fixture_id).first()
     
     # Get latest odds
-    odds = db.query(OddsData).filter(OddsData.fixture_id == fixture_id).order_by(desc(OddsData.created_at)).first()
+    odds = db.query(OddsData).filter(OddsData.fixture_id == fixture_id).order_by(desc(OddsData.fetched_at)).first()
     
     return {
         "fixture": {
@@ -984,10 +867,10 @@ async def get_fixture_detail(
             "away": odds.away_odds if odds else 1.9,
             "sources": [
                 {
-                    "name": odds.provider if odds else "The Odds API", 
+                    "name": odds.bookmaker if odds else "market", 
                     "home": odds.home_odds if odds else 1.9, 
                     "away": odds.away_odds if odds else 1.9, 
-                    "updated": convert_to_lagos_time(odds.created_at).isoformat() if odds else datetime.utcnow().isoformat()
+                    "updated": convert_to_lagos_time(odds.fetched_at).isoformat() if odds else datetime.utcnow().isoformat()
                 }
             ]
         },
