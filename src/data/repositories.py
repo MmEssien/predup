@@ -92,9 +92,48 @@ class FixtureRepository(BaseRepository):
         return self.session.query(Fixture).filter(Fixture.id == fixture_id).first()
 
     def get_upcoming(self, limit: int = 50) -> List[Fixture]:
+        """Get future scheduled games only"""
         return self.session.query(Fixture).filter(
-            Fixture.status == "SCHEDULED"
+            and_(
+                Fixture.status == "SCHEDULED",
+                Fixture.utc_date > datetime.utcnow()
+            )
         ).order_by(Fixture.utc_date).limit(limit).all()
+
+    def get_live(self, limit: int = 50) -> List[Fixture]:
+        """Get in-progress games only"""
+        live_statuses = ["LIVE", "IN_PLAY", "1H", "HT", "2H", "ET", "P", "BT"]
+        return self.session.query(Fixture).filter(
+            Fixture.status.in_(live_statuses)
+        ).order_by(Fixture.utc_date).limit(limit).all()
+
+    def get_today(self, limit: int = 100) -> List[Fixture]:
+        """Get games scheduled for the current Lagos day"""
+        from src.utils.helpers import get_today_range_utc
+        start_utc, end_utc = get_today_range_utc()
+        
+        return self.session.query(Fixture).filter(
+            and_(
+                Fixture.utc_date >= start_utc,
+                Fixture.utc_date <= end_utc
+            )
+        ).order_by(Fixture.utc_date).limit(limit).all()
+
+    def cleanup_stale_data(self, days_back: int = 1) -> int:
+        """Remove cancelled/postponed fixtures and test data from the past"""
+        from datetime import timedelta
+        cutoff = datetime.utcnow() - timedelta(days=days_back)
+        
+        # Delete stale/cancelled fixtures
+        deleted = self.session.query(Fixture).filter(
+            or_(
+                and_(Fixture.status == "CANCELLED", Fixture.utc_date < cutoff),
+                and_(Fixture.status == "POSTPONED", Fixture.utc_date < cutoff)
+            )
+        ).delete()
+        
+        self.commit()
+        return deleted
 
     def get_completed(self, competition_id: Optional[int] = None, limit: int = 100) -> List[Fixture]:
         query = self.session.query(Fixture).filter(
