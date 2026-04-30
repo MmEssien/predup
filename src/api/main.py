@@ -29,7 +29,7 @@ async def lifespan(app: FastAPI):
 
     config = load_config()
 
-    db_manager.initialize()
+    db_manager.create_all()
     logger.info("Database initialized")
 
     app.state.registry = create_registry("models")
