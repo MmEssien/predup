@@ -491,17 +491,8 @@ async def evaluate_prediction(
 
 @router.get("/dashboard")
 async def get_dashboard():
-    """Diagnostic static return no DB"""
-    return {
-        "total_fixtures_today": 0,
-        "positive_ev_opportunities": 0,
-        "sports_active": ["football"],
-        "projected_edge_today": 0.0,
-        "yesterday_roi": 0.0,
-        "open_predictions": 0,
-        "last_updated": datetime.utcnow().isoformat(),
-        "debug": "static_test"
-    }
+    """Ultra simple return"""
+    return "DASHBOARD_OK"
 
 
 @router.get("/predictions/live")
