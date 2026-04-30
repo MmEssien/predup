@@ -73,6 +73,63 @@ async def health_check():
 
 
 @router.get("/debug/audit")
+@router.get("/debug/sample-predictions")
+async def debug_sample_predictions():
+    """Debug endpoint - returns sample predictions for testing"""
+    from datetime import timedelta
+    from datetime import datetime
+    
+    now = datetime.utcnow()
+    return {
+        "status": "success",
+        "data": [
+            {
+                "fixture_id": 9991,
+                "sport": "football",
+                "league": "PL",
+                "home_team": "Manchester City",
+                "away_team": "Liverpool",
+                "start_time": (now + timedelta(hours=4)).isoformat(),
+                "status": "SCHEDULED",
+                "home_odds": 2.10,
+                "away_odds": 3.40,
+                "model_probability": 0.62,
+                "implied_prob": 0.48,
+                "ev_percent": 14.2,
+                "kelly_percent": 5.8,
+                "recommended_side": "home",
+                "confidence_score": "high",
+                "odds_source": "model",
+                "predicted_value": "home_win",
+                "probability": 0.62,
+                "confidence": "high",
+            },
+            {
+                "fixture_id": 9992,
+                "sport": "football",
+                "league": "BL1",
+                "home_team": "Bayern Munich",
+                "away_team": "Dortmund",
+                "start_time": (now + timedelta(hours=6)).isoformat(),
+                "status": "SCHEDULED",
+                "home_odds": 1.55,
+                "away_odds": 2.90,
+                "model_probability": 0.68,
+                "implied_prob": 0.55,
+                "ev_percent": 13.8,
+                "kelly_percent": 6.2,
+                "recommended_side": "home",
+                "confidence_score": "high",
+                "odds_source": "model",
+                "predicted_value": "home_win",
+                "probability": 0.68,
+                "confidence": "high",
+            },
+        ],
+        "meta": {"source": "debug_fallback"}
+    }
+
+
 async def system_audit():
     """System-wide audit for root cause analysis"""
     from sqlalchemy import text
