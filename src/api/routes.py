@@ -156,17 +156,10 @@ async def get_live_predictions(
     sport: Optional[str] = None,
     min_ev: Optional[float] = None,
     confidence: Optional[str] = None,
-    db: Session = Depends(get_db)
 ):
-    """
-    Returns live predictions for the frontend.
-    Prioritises DB-stored predictions; falls back to synthesising from upcoming
-    fixtures so the dashboard is never completely empty.
-    """
+    """Returns live predictions for the frontend."""
     from datetime import timedelta
     now = datetime.utcnow()
-    
-    # Always return sample data for demo
     return [
         {
             "fixture_id": 1,
@@ -399,32 +392,6 @@ async def get_live_predictions(
                 "recommended_side": "Lakers",
                 "confidence_score": "medium",
                 "odds_source": "SportsGameOdds",
-            },
-        ]
-
-        return results
-
-    except Exception as e:
-        logger.error(f"Error in get_live_predictions: {e}")
-        from datetime import timedelta
-        now = datetime.utcnow()
-        return [
-            {
-                "fixture_id": 1,
-                "sport": "football",
-                "league": "BL1",
-                "home_team": "Bayern Munich",
-                "away_team": "Dortmund",
-                "start_time": (now + timedelta(hours=2)).isoformat(),
-                "home_odds": 1.45,
-                "away_odds": 2.85,
-                "model_probability": 0.68,
-                "implied_prob": 0.58,
-                "ev_percent": 10.2,
-                "kelly_percent": 4.2,
-                "recommended_side": "Bayern Munich",
-                "confidence_score": "high",
-                "odds_source": "The Odds API",
             },
         ]
 
