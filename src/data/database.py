@@ -1,6 +1,6 @@
 """Database models for PredUp"""
 
-from datetime import datetime, date
+from datetime import datetime, date, date
 
 from sqlalchemy import (
     Column, Integer, String, Date, DateTime, ForeignKey,
