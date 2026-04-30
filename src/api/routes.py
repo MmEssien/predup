@@ -74,60 +74,43 @@ async def health_check():
 
 @router.get("/debug/audit")
 @router.get("/debug/sample-predictions")
-async def debug_sample_predictions():
-    """Debug endpoint - returns sample predictions for testing"""
-    from datetime import timedelta
-    from datetime import datetime
+@router.get("/debug/test-football-api")
+async def debug_test_football_api():
+    """Debug endpoint - test football API directly"""
+    from src.data.api_client import FootballAPIClient
+    from datetime import date, timedelta
     
-    now = datetime.utcnow()
-    return {
-        "status": "success",
-        "data": [
-            {
-                "fixture_id": 9991,
-                "sport": "football",
-                "league": "PL",
-                "home_team": "Manchester City",
-                "away_team": "Liverpool",
-                "start_time": (now + timedelta(hours=4)).isoformat(),
-                "status": "SCHEDULED",
-                "home_odds": 2.10,
-                "away_odds": 3.40,
-                "model_probability": 0.62,
-                "implied_prob": 0.48,
-                "ev_percent": 14.2,
-                "kelly_percent": 5.8,
-                "recommended_side": "home",
-                "confidence_score": "high",
-                "odds_source": "model",
-                "predicted_value": "home_win",
-                "probability": 0.62,
-                "confidence": "high",
-            },
-            {
-                "fixture_id": 9992,
-                "sport": "football",
-                "league": "BL1",
-                "home_team": "Bayern Munich",
-                "away_team": "Dortmund",
-                "start_time": (now + timedelta(hours=6)).isoformat(),
-                "status": "SCHEDULED",
-                "home_odds": 1.55,
-                "away_odds": 2.90,
-                "model_probability": 0.68,
-                "implied_prob": 0.55,
-                "ev_percent": 13.8,
-                "kelly_percent": 6.2,
-                "recommended_side": "home",
-                "confidence_score": "high",
-                "odds_source": "model",
-                "predicted_value": "home_win",
-                "probability": 0.68,
-                "confidence": "high",
-            },
-        ],
-        "meta": {"source": "debug_fallback"}
-    }
+    results = []
+    client = FootballAPIClient()
+    
+    try:
+        comps = client.get_competitions()
+        results.append({"step": "get_competitions", "success": True, "count": len(comps.get("competitions", []))})
+        
+        # Query next 5 days
+        dates = [date.today() + timedelta(days=d) for d in range(0, 5)]
+        
+        total_matches = 0
+        for d in dates:
+            for comp in comps.get("competitions", [])[:4]:
+                code = comp.get("code", "")
+                if code not in ["PL", "BL1", "FL1"]:
+                    continue
+                try:
+                    matches = client.get_matches(comp_id=comp.get("id"), date=d.isoformat())
+                    match_list = matches.get("matches", [])
+                    total_matches += len(match_list)
+                except Exception as e:
+                    pass
+        
+        results.append({"step": "fetch_matches", "success": True, "total_matches": total_matches, "dates_tested": [d.isoformat() for d in dates]})
+        
+    except Exception as e:
+        results.append({"step": "error", "message": str(e)})
+    finally:
+        client.close()
+    
+    return {"status": "success", "data": results}
 
 
 async def system_audit():
