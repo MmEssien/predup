@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Request
 from sqlalchemy import and_, desc, text
 from sqlalchemy.orm import Session
 
@@ -116,32 +116,17 @@ async def system_audit():
 
 
 @router.post("/debug/sync")
-async def trigger_sync(db: Session = Depends(get_db)):
+async def trigger_sync(background_tasks: BackgroundTasks):
     """Trigger a manual data sync for forensics"""
-    import subprocess
-    import sys
-    import os
+    from scripts.ingest_data import main as run_ingest
+    import asyncio
     
-    # We run the ingestion script as a subprocess to avoid blocking the API too long
-    # and to reuse the existing script logic cleanly.
-    try:
-        script_path = os.path.join(os.getcwd(), "scripts", "ingest_data.py")
-        if not os.path.exists(script_path):
-             return {"status": "error", "message": f"Script not found at {script_path}"}
-             
-        process = subprocess.Popen(
-            [sys.executable, script_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        return {
-            "status": "success", 
-            "message": "Sync started in background", 
-            "pid": process.pid
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    background_tasks.add_task(asyncio.to_thread, run_ingest)
+    
+    return {
+        "status": "success", 
+        "message": "Sync started in background via BackgroundTasks"
+    }
 
 
 @router.get("/calibration/status")

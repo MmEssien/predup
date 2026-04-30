@@ -58,7 +58,8 @@ async def run_periodic_sync():
     while True:
         try:
             logger.info("Starting background data sync...")
-            run_ingest()
+            # Run blocking ingestion in a thread pool
+            await asyncio.to_thread(run_ingest)
             logger.info("Background data sync completed.")
         except Exception as e:
             logger.error(f"Background data sync failed: {e}")
