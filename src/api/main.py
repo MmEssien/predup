@@ -96,19 +96,23 @@ def create_app() -> FastAPI:
         response = await call_next(request)
         
         # Only wrap if it's a JSON response and in the /api/v1 path
-        if (request.url.path.startswith("/api/v1") and 
-            response.headers.get("content-type") == "application/json"):
-            
-            # For some responses, we might need to read the body
-            # This can be tricky with StreamingResponses, but for standard JSON it works
+        content_type = response.headers.get("content-type", "")
+        if (request.url.path.startswith("/api/v1") and "application/json" in content_type):
             try:
-                # Consume the response body
-                body = [section async for section in response.body_iterator]
-                response.body_iterator = iterate_in_threadpool(iter(body))
+                # Standard FastAPI call_next returns a StreamingResponse
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk
                 
-                data = json.loads(body[0].decode())
+                # We must reset the iterator so the response can still be sent if we don't return a new one
+                response.body_iterator = iterate_in_threadpool(iter([body]))
                 
-                # Avoid double wrapping
+                if not body:
+                    return response
+                    
+                data = json.loads(body.decode())
+                
+                # Check if already wrapped
                 if isinstance(data, dict) and "status" in data and ("data" in data or "error" in data):
                     return response
                 
@@ -121,7 +125,7 @@ def create_app() -> FastAPI:
                 return JSONResponse(
                     content=wrapped,
                     status_code=response.status_code,
-                    headers=dict(response.headers)
+                    headers={k: v for k, v in response.headers.items() if k.lower() != "content-length"}
                 )
             except Exception as e:
                 logger.error(f"Error wrapping response: {e}")
