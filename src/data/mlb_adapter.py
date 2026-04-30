@@ -41,17 +41,21 @@ class MLBAdapter(BaseSportAdapter):
         
         return results
     
+    def get_todays_games(self) -> List[Dict]:
+        """Get today's MLB games - for routes.py compatibility"""
+        return self.get_fixtures(days_ahead=1)
+    
     def get_live_games(self) -> List[Dict]:
         """Get live MLB games"""
-        # Could use the live feed endpoint
         schedule = self.client.get_todays_games()
         
         results = []
         for date_obj in schedule.get("dates", []):
-            for game in date_obj.get("games", []):
-                status = game.get("status", {}).get("abstractGameState")
+            game = date_obj.get("games", [])
+            for g in game:
+                status = g.get("status", {}).get("abstractGameState")
                 if status == "Live":
-                    results.append(self.mapper.map_game(game))
+                    results.append(self.mapper.map_game(g))
         
         return results
     

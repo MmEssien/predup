@@ -190,8 +190,40 @@ async def run_intelligence(background_tasks: BackgroundTasks):
     return {"status": "success", "message": "Intelligence run started in background"}
 
 
-def format_datetime(dt_str: str) -> str:
-    """Format datetime to 'Fri, May 1 • 19:00' in Africa/Lagos timezone"""
+def format_datetime(dt_str: str) -> tuple:
+    """Format datetime to show date + time in Africa/Lagos timezone"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    if not dt_str:
+        return ("TBD", "TBD")
+    
+    try:
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        lagos_tz = ZoneInfo("Africa/Lagos")
+        dt_lagos = dt.astimezone(lagos_tz)
+        
+        now = datetime.now(lagos_tz)
+        today = now.date()
+        match_date = dt_lagos.date()
+        
+        if match_date == today:
+            day_str = "Today"
+        elif match_date == today + 1:
+            day_str = "Tomorrow"
+        elif match_date == today - 1:
+            day_str = "Yesterday"
+        else:
+            day_str = dt_lagos.strftime("%a, %b %d").replace(" 0", " ")
+        
+        time_str = dt_lagos.strftime("%H:%M")
+        return (day_str, time_str)
+    except:
+        return (dt_str[:10] if dt_str else "TBD", dt_str[11:16] if dt_str else "TBD")
+
+
+def format_date_only(dt_str: str) -> str:
+    """Format datetime to just date 'Fri, May 1'"""
     from datetime import datetime
     from zoneinfo import ZoneInfo
     
@@ -211,13 +243,14 @@ def format_datetime(dt_str: str) -> str:
             day_str = "Today"
         elif match_date == today + 1:
             day_str = "Tomorrow"
+        elif match_date == today - 1:
+            day_str = "Yesterday"
         else:
             day_str = dt_lagos.strftime("%a, %b %d").replace(" 0", " ")
         
-        time_str = dt_lagos.strftime("%H:%M")
-        return f"{day_str} • {time_str}"
+        return day_str
     except:
-        return dt_str[:16] if dt_str else "TBD"
+        return dt_str[:10] if dt_str else "TBD"
 
 
 def fetch_sport_fixtures(sport: str) -> list:
@@ -265,7 +298,8 @@ def fetch_sport_fixtures(sport: str) -> list:
                                 "home_team": m.get("homeTeam", {}).get("name", ""),
                                 "away_team": m.get("awayTeam", {}).get("name", ""),
                                 "start_time": start_time,
-                                "display_time": format_datetime(start_time),
+                                "match_date": format_date_only(start_time),
+                                "match_time": format_datetime(start_time)[1],
                                 "status": m.get("status"),
                             })
                     except:
@@ -288,10 +322,12 @@ def fetch_sport_fixtures(sport: str) -> list:
                     "home_team": g.get("home_team", ""),
                     "away_team": g.get("away_team", ""),
                     "start_time": start_time,
-                    "display_time": format_datetime(start_time),
+                    "match_date": format_date_only(start_time),
+                    "match_time": format_datetime(start_time)[1],
                     "status": "SCHEDULED",
                 })
-        except:
+        except Exception as e:
+            logger.warning(f"NBA fixtures fetch failed: {e}")
             pass
     
     elif sport == "mlb":
@@ -308,10 +344,12 @@ def fetch_sport_fixtures(sport: str) -> list:
                     "home_team": g.get("home_team", ""),
                     "away_team": g.get("away_team", ""),
                     "start_time": start_time,
-                    "display_time": format_datetime(start_time),
+                    "match_date": format_date_only(start_time),
+                    "match_time": format_datetime(start_time)[1],
                     "status": "SCHEDULED",
                 })
-        except:
+        except Exception as e:
+            logger.warning(f"MLB fixtures fetch failed: {e}")
             pass
     
     return fixtures
@@ -345,6 +383,8 @@ async def get_live_predictions(
             ev_pct = round((prob - implied_prob) * 100, 2)
             conf = "high" if prob > 0.68 else ("medium" if prob > 0.58 else "low")
             
+            match_date = f.get("match_date", "TBD")
+            
             all_results.append({
                 "fixture_id": f.get("fixture_id"),
                 "sport": sp,
@@ -352,7 +392,8 @@ async def get_live_predictions(
                 "home_team": home,
                 "away_team": away,
                 "start_time": f.get("start_time"),
-                "display_time": f.get("display_time", "TBD"),
+                "match_date": match_date,
+                "match_time": f.get("match_time", "TBD"),
                 "status": f.get("status"),
                 "home_odds": home_odds,
                 "away_odds": away_odds,
@@ -377,7 +418,18 @@ async def get_live_predictions(
     if confidence:
         results = [r for r in results if r.get("confidence_score") == confidence]
     
-    results.sort(key=lambda x: x.get("ev_percent", 0), reverse=True)
+    def sort_key(x):
+        date = x.get("match_date", "")
+        start = x.get("start_time", "")
+        if date and "Today" in date:
+            return (0, start)
+        elif date and "Tomorrow" in date:
+            return (1, start)
+        elif date and "Yesterday" in date:
+            return (3, start)
+        return (2, start)
+    
+    results.sort(key=sort_key)
     
     return results[:50]
 
@@ -917,86 +969,74 @@ async def evaluate_prediction(
 
 @router.get("/dashboard")
 async def get_dashboard(db: Session = Depends(get_db)):
-    """Get dashboard statistics - computed from live predictions"""
+    """Get dashboard statistics - computed from all sports fixtures"""
     from datetime import datetime
     
     try:
-        # Fetch from football API only for now
-        from src.data.api_client import FootballAPIClient
-        client = FootballAPIClient()
+        all_fixtures = []
+        sports_active = []
+        supported_sports = ["football", "nba", "mlb"]
         
-        predictions = []
-        now = datetime.utcnow()
+        for sport in supported_sports:
+            fixtures = fetch_sport_fixtures(sport)
+            if fixtures:
+                sports_active.append(sport)
+                all_fixtures.extend(fixtures)
         
-        try:
-            comps = client.get_competitions()
-            seen = set()
-            
-            for d in range(0, 4):
-                query_date = (now.date() + timedelta(days=d))
-                for comp in comps.get("competitions", []):
-                    code = comp.get("code", "")
-                    if code not in ["PL", "BL1", "FL1", "PD", "SA", "EL"]:
-                        continue
-                    try:
-                        matches = client.get_matches(competition_code=code, date=query_date.isoformat())
-                        for m in matches.get("matches", []):
-                            if m.get("status") not in ["SCHEDULED", "TIMED"]:
-                                continue
-                            match_id = m.get("id")
-                            if match_id in seen:
-                                continue
-                            seen.add(match_id)
-                            
-                            start_time = m.get("utcDate", "")
-                            try:
-                                kickoff = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-                                if kickoff <= now:
-                                    continue
-                            except:
-                                pass
-                            
-                            home = m.get("homeTeam", {}).get("name", "TBD")
-                            away = m.get("awayTeam", {}).get("name", "TBD")
-                            
-                            team_hash = (hash(home + away) % 40) + 50
-                            prob = team_hash / 100
-                            home_odds = round(1 / prob, 2)
-                            implied_prob = round(1 / home_odds, 2)
-                            ev_pct = round((prob - implied_prob) * 100, 2)
-                            
-                            predictions.append({
-                                "sport": "football",
-                                "ev_percent": ev_pct,
-                                "status": m.get("status"),
-                            })
-                    except:
-                        pass
-        finally:
-            client.close()
+        total_fixtures = len(all_fixtures)
         
-        total_fixtures = len(predictions)
-        positive_ev = len([p for p in predictions if p.get("ev_percent", 0) > 5])
-        open_preds = len([p for p in predictions if p.get("status") in ["SCHEDULED", "TIMED"]])
+        today_fixtures = [f for f in all_fixtures if f.get("match_date") == "Today"]
+        positive_ev = 0
+        open_preds = 0
         
-        sports = ["football"]
-        top_ev = max([p.get("ev_percent", 0) for p in predictions], default=0.0)
+        for f in all_fixtures:
+            home = f.get("home_team", "")
+            away = f.get("away_team", "")
+            if home and away:
+                team_hash = (hash(home + away) % 40) + 50
+                prob = team_hash / 100
+                home_odds = round(1 / prob, 2)
+                implied_prob = round(1 / home_odds, 2)
+                ev_pct = round((prob - implied_prob) * 100, 2)
+                if ev_pct > 5:
+                    positive_ev += 1
+                if f.get("status") in ["SCHEDULED", "TIMED"]:
+                    open_preds += 1
+        
+        top_ev = 0
+        for f in all_fixtures:
+            home = f.get("home_team", "")
+            away = f.get("away_team", "")
+            if home and away:
+                team_hash = (hash(home + away) % 40) + 50
+                prob = team_hash / 100
+                home_odds = round(1 / prob, 2)
+                implied_prob = round(1 / home_odds, 2)
+                ev_pct = round((prob - implied_prob) * 100, 2)
+                if ev_pct > top_ev:
+                    top_ev = ev_pct
+        
+        from src.data.database import Prediction
+        from sqlalchemy import func
+        yesterday_roi = 0.0
         
         return {
             "total_fixtures_today": total_fixtures,
+            "today_fixture_count": len(today_fixtures),
             "positive_ev_opportunities": positive_ev,
-            "sports_active": sports,
+            "sports_active": sports_active,
             "projected_edge_today": round(top_ev, 2),
-            "yesterday_roi": 0.0,
+            "yesterday_roi": round(yesterday_roi, 2),
             "open_predictions": open_preds,
             "last_updated": datetime.utcnow().isoformat(),
-            "pipeline_status": "RUNNING",
-            "next_run": datetime.utcnow().isoformat()
+            "pipeline_status": "READY",
+            "next_run": None
         }
     except Exception as e:
         logger.error(f"DASHBOARD ERROR: {str(e)}")
         return {
             "total_fixtures_today": 0,
+            "today_fixture_count": 0,
             "positive_ev_opportunities": 0,
             "sports_active": [],
             "projected_edge_today": 0.0,
@@ -1006,21 +1046,6 @@ async def get_dashboard(db: Session = Depends(get_db)):
             "pipeline_status": "ERROR",
             "error": str(e)
         }
-    except Exception as e:
-        logger.error(f"DASHBOARD ERROR: {str(e)}")
-        return {
-            "total_fixtures_today": 0,
-            "positive_ev_opportunities": 0,
-            "sports_active": [],
-            "projected_edge_today": 0.0,
-            "yesterday_roi": 0.0,
-            "open_predictions": 0,
-            "last_updated": datetime.utcnow().isoformat(),
-            "pipeline_status": "ERROR",
-            "error": str(e)
-        }
-        logger.error(f"DASHBOARD ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Dashboard calculation error: {str(e)}")
 
 
 

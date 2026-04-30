@@ -52,6 +52,10 @@ class NBAAdapter(BaseSportAdapter):
         
         return results
     
+    def get_todays_games(self) -> List[Dict]:
+        """Get today's NBA games - for routes.py compatibility"""
+        return self.get_fixtures(days_ahead=1)
+    
     def get_live_games(self) -> List[Dict]:
         """Get live NBA games"""
         data = self.client.get_games(season=self._current_season)
