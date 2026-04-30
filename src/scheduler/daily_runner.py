@@ -139,25 +139,35 @@ class DailyBatchRunner:
             all_fixtures = []
             comps_data = competitions.get("competitions", [])
             
+            # Query multiple dates: today, tomorrow, and next 3 days
+            from datetime import timedelta
+            dates_to_query = [date.today() + timedelta(days=d) for d in range(0, 4)]
+            
             for comp in comps_data:
                 code = comp.get("code", "")
                 if code not in ["PL", "BL1", "FL1", "PD", "SA", "EL"]:
                     continue
                 
-                try:
-                    matches = client.get_matches(comp_id=comp.get("id"), date=date.today().isoformat())
-                    for match in matches.get("matches", []):
-                        all_fixtures.append({
-                            "sport": "football",
-                            "league": code,
-                            "external_id": match.get("id"),
-                            "home_team": match.get("homeTeam", {}).get("name", ""),
-                            "away_team": match.get("awayTeam", {}).get("name", ""),
-                            "start_time": match.get("utcDate"),
-                            "status": match.get("status", "SCHEDULED")
-                        })
-                except Exception as e:
-                    logger.warning(f"Error fetching {code}: {e}")
+                comp_id = comp.get("id")
+                
+                for query_date in dates_to_query:
+                    try:
+                        matches = client.get_matches(comp_id=comp_id, date=query_date.isoformat())
+                        for match in matches.get("matches", []):
+                            # Only add SCHEDULED or TIMED matches (not finished ones)
+                            status = match.get("status", "")
+                            if status in ["SCHEDULED", "TIMED", "IN_PLAY"]:
+                                all_fixtures.append({
+                                    "sport": "football",
+                                    "league": code,
+                                    "external_id": match.get("id"),
+                                    "home_team": match.get("homeTeam", {}).get("name", ""),
+                                    "away_team": match.get("awayTeam", {}).get("name", ""),
+                                    "start_time": match.get("utcDate"),
+                                    "status": match.get("status", "SCHEDULED")
+                                })
+                    except Exception as e:
+                        logger.warning(f"Error fetching {code} on {query_date}: {e}")
             
             client.close()
             return all_fixtures
