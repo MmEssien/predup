@@ -2,12 +2,13 @@
 
 import logging
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 
 from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
 from src.data.connection import DatabaseManager, get_db_context

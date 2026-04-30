@@ -3,7 +3,8 @@
 import yaml
 import os
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
+from datetime import datetime, timedelta
 
 
 def load_config(config_path: str = None) -> Dict[str, Any]:
@@ -29,23 +30,20 @@ def ensure_dir(path: str) -> Path:
 
 def format_date(date_str: str, input_format: str = "%Y-%m-%d", output_format: str = "%Y-%m-%d") -> str:
     """Format date string"""
-    from datetime import datetime
     dt = datetime.strptime(date_str, input_format)
     return dt.strftime(output_format)
 
 
 def convert_to_lagos_time(utc_dt: datetime) -> datetime:
     """Convert UTC datetime to Africa/Lagos (UTC+1)"""
-    from datetime import timedelta
     if utc_dt is None:
         return None
     # Lagos is always UTC+1 (no DST)
     return utc_dt + timedelta(hours=1)
 
 
-def get_today_range_utc() -> tuple[datetime, datetime]:
+def get_today_range_utc() -> Tuple[datetime, datetime]:
     """Get UTC start and end of the current day in Africa/Lagos"""
-    from datetime import datetime, timedelta
     
     # Current time in Lagos
     now_lagos = convert_to_lagos_time(datetime.utcnow())

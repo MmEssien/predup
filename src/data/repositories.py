@@ -1,7 +1,7 @@
 """Repository pattern for database access"""
 
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc, asc
@@ -121,7 +121,6 @@ class FixtureRepository(BaseRepository):
 
     def cleanup_stale_data(self, days_back: int = 1) -> int:
         """Remove cancelled/postponed fixtures and test data from the past"""
-        from datetime import timedelta
         cutoff = datetime.utcnow() - timedelta(days=days_back)
         
         # Delete stale/cancelled fixtures
