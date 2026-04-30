@@ -288,7 +288,7 @@ class UnifiedIntelligenceEngine:
             print(f"        Bet: {bet:4} | Prob: {prob:.1%} | Odds: {odds:.2f} | EV: {ev:+.1f}%")
     
     def _save(self):
-        """Save predictions"""
+        """Save predictions to JSON and Database"""
         all_preds = []
         
         for sport, data in self.results.items():
@@ -302,6 +302,7 @@ class UnifiedIntelligenceEngine:
             print("\nNo predictions to save")
             return
         
+        # Save to JSON for history
         output_file = _root / "data" / f"daily_predictions_{datetime.now().strftime('%Y-%m-%d')}.json"
         output_file.parent.mkdir(parents=True, exist_ok=True)
         
@@ -311,8 +312,45 @@ class UnifiedIntelligenceEngine:
                 "total_predictions": len(all_preds),
                 "predictions": all_preds,
             }, f, indent=2, default=str)
-        
+            
         print(f"\nSaved {len(all_preds)} predictions to {output_file.name}")
+
+        # Save to Database
+        try:
+            from src.data.database import SessionLocal, Prediction, Fixture
+            db = SessionLocal()
+            
+            saved_count = 0
+            for p in all_preds:
+                # Find fixture in DB by team names (simplified match)
+                fixture = db.query(Fixture).filter(
+                    Fixture.home_team.ilike(p["home_team"]),
+                    Fixture.away_team.ilike(p["away_team"])
+                ).first()
+                
+                if fixture:
+                    # Check if prediction already exists
+                    existing = db.query(Prediction).filter(
+                        Prediction.fixture_id == fixture.id
+                    ).first()
+                    
+                    if not existing:
+                        db_pred = Prediction(
+                            fixture_id=fixture.id,
+                            prediction_type="h2h",
+                            predicted_value=1.0 if p["bet_on"] == "home" else (2.0 if p["bet_on"] == "away" else 0.0),
+                            probability=p["baseline_prob"],
+                            confidence=0.7, # Default confidence
+                            predicted_at=datetime.now()
+                        )
+                        db.add(db_pred)
+                        saved_count += 1
+            
+            db.commit()
+            db.close()
+            print(f"Persisted {saved_count} predictions to the database")
+        except Exception as e:
+            print(f"Error persisting to database: {e}")
 
 
 def main():

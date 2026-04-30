@@ -133,6 +133,22 @@ async def trigger_sync(background_tasks: BackgroundTasks):
     }
 
 
+@router.post("/debug/intelligence")
+async def run_intelligence(background_tasks: BackgroundTasks):
+    """Trigger daily intelligence run in background"""
+    def run_wrapper():
+        try:
+            from scripts.run_daily_intelligence import UnifiedIntelligenceEngine
+            engine = UnifiedIntelligenceEngine()
+            engine.run()
+            logger.info("Intelligence run completed successfully")
+        except Exception as e:
+            logger.error(f"Intelligence run failed: {e}")
+
+    background_tasks.add_task(run_wrapper)
+    return {"status": "success", "message": "Intelligence run started in background"}
+
+
 @router.get("/calibration/status")
 async def get_calibration_status():
     """Get calibration status"""
