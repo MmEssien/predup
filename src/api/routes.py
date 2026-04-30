@@ -491,46 +491,17 @@ async def evaluate_prediction(
 
 @router.get("/dashboard")
 async def get_dashboard(db: Session = Depends(get_db)):
-    """Get dashboard statistics for frontend computed live from DB"""
-    try:
-        from src.utils.helpers import get_today_range_utc
-        
-        start_utc, end_utc = get_today_range_utc()
-        
-        total_today = db.query(Fixture).filter(
-            and_(Fixture.utc_date >= start_utc, Fixture.utc_date <= end_utc)
-        ).count()
-        
-        # Active sports are those with upcoming games today
-        active_sports_query = db.query(Competition.area_name).join(Fixture, Competition.id == Fixture.competition_id).filter(
-            and_(Fixture.utc_date >= start_utc, Fixture.utc_date <= end_utc)
-        ).distinct().all()
-        
-        sports_active = [s[0].lower() for s in active_sports_query if s[0]] if active_sports_query else ["football"]
-        
-        open_preds = db.query(Prediction).filter(
-            Prediction.settled_at.is_(None)
-        ).count()
-        
-        positive_ev = db.query(Prediction).filter(
-            and_(
-                Prediction.settled_at.is_(None),
-                Prediction.probability > 0.6 # Placeholder for EV logic
-            )
-        ).count()
-        
-        return {
-            "total_fixtures_today": total_today,
-            "positive_ev_opportunities": positive_ev,
-            "sports_active": sports_active,
-            "projected_edge_today": 5.2, # Still need logic for this
-            "yesterday_roi": 3.8,        # Still need logic for this
-            "open_predictions": open_preds,
-            "last_updated": datetime.utcnow().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"DASHBOARD ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Dashboard calculation error: {str(e)}")
+    """Diagnostic static return"""
+    return {
+        "total_fixtures_today": 0,
+        "positive_ev_opportunities": 0,
+        "sports_active": ["football"],
+        "projected_edge_today": 0.0,
+        "yesterday_roi": 0.0,
+        "open_predictions": 0,
+        "last_updated": datetime.utcnow().isoformat(),
+        "debug": "static_test"
+    }
 
 
 @router.get("/predictions/live")
