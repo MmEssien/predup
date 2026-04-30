@@ -91,6 +91,8 @@ async def system_audit():
                 # Check latest update
                 if table == "predictions":
                     date_col = "predicted_at"
+                elif table == "odds_data":
+                    date_col = "fetched_at"
                 else:
                     # All others use created_at or updated_at
                     date_col = "updated_at" if table == "fixtures" else "created_at"
