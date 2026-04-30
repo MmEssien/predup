@@ -490,8 +490,8 @@ async def evaluate_prediction(
 # ============ Frontend Dashboard Endpoints ============
 
 @router.get("/dashboard")
-async def get_dashboard(db: Session = Depends(get_db)):
-    """Diagnostic static return"""
+async def get_dashboard():
+    """Diagnostic static return no DB"""
     return {
         "total_fixtures_today": 0,
         "positive_ev_opportunities": 0,
