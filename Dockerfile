@@ -14,6 +14,6 @@ COPY . .
 
 ENV PYTHONPATH=/app
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD ["sh", "-c", "alembic stamp 004_nba_integration && uvicorn src.api.main:app --host 0.0.0.0 --port $PORT"]
