@@ -988,6 +988,7 @@ async def update_settings(settings: dict):
 
 
 @router.post("/admin/run-daily-pipeline")
+@router.get("/admin/run-daily-pipeline")
 async def trigger_daily_pipeline(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
