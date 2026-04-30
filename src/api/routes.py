@@ -59,11 +59,16 @@ async def health_check():
         logger.error(f"Database health check failed: {e}")
         db_status = f"error: {str(e)}"
 
+    models_count = 0
+    registry = get_registry()
+    if registry:
+        models_count = len(registry.list_models())
+
     return HealthResponse(
         status="healthy",
         service="predup",
         database=db_status,
-        models_loaded=0
+        models_loaded=models_count
     )
 
 
@@ -73,7 +78,7 @@ async def system_audit():
     from sqlalchemy import text
     db_manager = DatabaseManager.get_instance()
     
-    tables = ["fixtures", "predictions", "odds_data", "competitions", "teams", "prediction_history"]
+    tables = ["fixtures", "predictions", "odds_data", "competitions", "teams"]
     audit_results = {}
     
     for table in tables:
@@ -86,9 +91,8 @@ async def system_audit():
                 # Check latest update
                 if table == "predictions":
                     date_col = "predicted_at"
-                elif table == "prediction_history":
-                    date_col = "created_at"
                 else:
+                    # All others use created_at or updated_at
                     date_col = "updated_at" if table == "fixtures" else "created_at"
                     
                 latest = db.execute(text(f"SELECT MAX({date_col}) FROM {table}")).scalar()
@@ -584,8 +588,8 @@ async def get_dashboard(db: Session = Depends(get_db)):
             "total_fixtures_today": total_today,
             "positive_ev_opportunities": positive_ev,
             "sports_active": sports_active,
-            "projected_edge_today": 5.2, # Still need logic for this
-            "yesterday_roi": 3.8,        # Still need logic for this
+            "projected_edge_today": 0.0, # Placeholder until intelligence engine run
+            "yesterday_roi": 0.0,        # Placeholder until settlement service run
             "open_predictions": open_preds,
             "last_updated": datetime.utcnow().isoformat()
         }

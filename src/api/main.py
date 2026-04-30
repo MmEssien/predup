@@ -32,8 +32,10 @@ async def lifespan(app: FastAPI):
     db_manager.create_all()
     logger.info("Database initialized")
 
-    app.state.registry = create_registry("models")
-    logger.info("Model registry loaded")
+    from src.utils.helpers import get_root_path
+    root = get_root_path()
+    app.state.registry = create_registry(str(root / "models"))
+    logger.info(f"Model registry loaded from {root / 'models'}")
     
     # Sync to router state as well
     from src.api.routes import router

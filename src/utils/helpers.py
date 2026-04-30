@@ -6,6 +6,11 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 from datetime import datetime, timedelta
 
+def get_root_path() -> Path:
+    """Get the project root directory"""
+    return Path(__file__).parent.parent.parent
+
+
 
 def load_config(config_path: str = None) -> Dict[str, Any]:
     """Load configuration from YAML file"""
