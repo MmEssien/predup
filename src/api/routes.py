@@ -503,10 +503,11 @@ async def get_dashboard(db: Session = Depends(get_db)):
     ).count()
     
     # Active sports are those with upcoming games today
-    active_sports_query = db.query(Competition.area_name).join(Fixture).filter(
+    active_sports_query = db.query(Competition.area_name).join(Fixture, Competition.id == Fixture.competition_id).filter(
         and_(Fixture.utc_date >= start_utc, Fixture.utc_date <= end_utc)
     ).distinct().all()
-    sports_active = [s[0].lower() for s in active_sports_query] if active_sports_query else ["football"]
+    
+    sports_active = [s[0].lower() for s in active_sports_query if s[0]] if active_sports_query else ["football"]
     
     open_preds = db.query(Prediction).filter(
         Prediction.settled_at.is_(None)
