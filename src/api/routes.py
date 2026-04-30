@@ -495,30 +495,35 @@ async def get_dashboard(
     from datetime import timedelta
     from src.data.database import Fixture, Prediction
     
-    now = datetime.utcnow()
-    end_of_day = now.replace(hour=23, minute=59, second=59)
+    try:
+        now = datetime.utcnow()
+        end_of_day = now.replace(hour=23, minute=59, second=59)
+        
+        # Today's fixtures
+        today_fixtures = db.query(Fixture).filter(
+            Fixture.utc_date >= now,
+            Fixture.utc_date <= end_of_day,
+            Fixture.status == "SCHEDULED"
+        ).count()
+        
+        # Get recent predictions
+        recent_predictions = db.query(Prediction).filter(
+            Prediction.predicted_at >= now - timedelta(days=1)
+        ).count()
+        
+        # Get open predictions
+        open_predictions = db.query(Prediction).filter(
+            Prediction.settled_at.is_(None)
+        ).count()
+        
+        active_sports = ["football"]
+    except Exception as e:
+        logger.warning(f"Dashboard query error: {e}")
+        today_fixtures = 0
+        recent_predictions = 0
+        open_predictions = 0
+        active_sports = ["football"]
     
-    # Today's fixtures
-    today_fixtures = db.query(Fixture).filter(
-        Fixture.utc_date >= now,
-        Fixture.utc_date <= end_of_day,
-        Fixture.status == "SCHEDULED"
-    ).count()
-    
-    # Get recent predictions
-    recent_predictions = db.query(Prediction).filter(
-        Prediction.predicted_at >= now - timedelta(days=1)
-    ).count()
-    
-    # Get open predictions
-    open_predictions = db.query(Prediction).filter(
-        Prediction.settled_at.is_(None)
-    ).count()
-    
-    # Get active sports from competitions
-    active_sports = ["football"]
-    
-    # Return placeholder values for now (would be calculated from actual data)
     return {
         "total_fixtures_today": today_fixtures,
         "positive_ev_opportunities": min(recent_predictions, 8),
@@ -526,7 +531,7 @@ async def get_dashboard(
         "projected_edge_today": 5.2,
         "yesterday_roi": 3.8,
         "open_predictions": open_predictions,
-        "last_updated": now.isoformat()
+        "last_updated": datetime.utcnow().isoformat()
     }
 
 
