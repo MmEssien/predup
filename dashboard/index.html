@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PredUp Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+        }
+        .header {
+            background: #161b22;
+            padding: 1rem 2rem;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { color: #58a6ff; font-size: 1.5rem; }
+        .status-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.875rem;
+            background: #238636;
+            color: white;
+        }
+        .status-badge.warning { background: #d29922; }
+        .status-badge.error { background: #da3633; }
+        .container { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+        .card h2 {
+            color: #8b949e;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 1rem;
+        }
+        .metric {
+            font-size: 2.5rem;
+            font-weight: 600;
+            color: #58a6ff;
+        }
+        .metric.positive { color: #3fb950; }
+        .metric.negative { color: #f85149; }
+        .metric.neutral { color: #d29922; }
+        .subtext {
+            color: #8b949e;
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+        .chart-container {
+            height: 300px;
+            margin-top: 1rem;
+        }
+        .table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .table th, .table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #30363d;
+        }
+        .table th {
+            color: #8b949e;
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+        .progress-bar {
+            height: 8px;
+            background: #30363d;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #238636;
+            transition: width 0.3s ease;
+        }
+        .progress-fill.warning { background: #d29922; }
+        .progress-fill.danger { background: #da3633; }
+        .refresh-btn {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover { background: #30363d; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>PredUp Dashboard</h1>
+        <div class="status-badge" id="systemStatus">System Healthy</div>
+    </div>
+
+    <div class="container">
+        <div class="grid">
+            <div class="card">
+                <h2>Total Predictions</h2>
+                <div class="metric" id="totalPredictions">0</div>
+                <div class="subtext" id="predictionsTrend">Last 7 days</div>
+            </div>
+            <div class="card">
+                <h2>Accuracy</h2>
+                <div class="metric" id="accuracy">0%</div>
+                <div class="subtext">Target: 75%+</div>
+            </div>
+            <div class="card">
+                <h2>Accepted Predictions</h2>
+                <div class="metric" id="acceptedPredictions">0</div>
+                <div class="subtext" id="acceptanceRate">0% acceptance rate</div>
+            </div>
+            <div class="card">
+                <h2>Model ROI</h2>
+                <div class="metric" id="roi">0%</div>
+                <div class="subtext">Return on investment</div>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Accuracy Over Time</h2>
+                <div class="chart-container">
+                    <canvas id="accuracyChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h2>Predictions by Type</h2>
+                <div class="chart-container">
+                    <canvas id="predictionTypesChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Recent Predictions</h2>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Match</th>
+                        <th>Type</th>
+                        <th>Prediction</th>
+                        <th>Probability</th>
+                        <th>Confidence</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody id="predictionsTable">
+                </tbody>
+            </table>
+        </div>
+
+        <div style="margin-top: 2rem;">
+            <button class="refresh-btn" onclick="refreshDashboard()">Refresh Dashboard</button>
+        </div>
+    </div>
+
+    <script>
+        let accuracyChart, predictionTypesChart;
+
+        async function fetchMetrics() {
+            try {
+                const response = await fetch('/api/v1/metrics');
+                return await response.json();
+            } catch (e) {
+                console.error('Failed to fetch metrics:', e);
+                return null;
+            }
+        }
+
+        async function refreshDashboard() {
+            const metrics = await fetchMetrics();
+
+            if (!metrics) {
+                document.getElementById('systemStatus').textContent = 'Error';
+                document.getElementById('systemStatus').className = 'status-badge error';
+                return;
+            }
+
+            document.getElementById('totalPredictions').textContent = metrics.total || 0;
+            document.getElementById('accuracy').textContent = ((metrics.accuracy || 0) * 100).toFixed(1) + '%';
+            document.getElementById('acceptedPredictions').textContent = metrics.accepted || 0;
+            document.getElementById('acceptanceRate').textContent = ((metrics.accepted_rate || 0) * 100).toFixed(1) + '% acceptance rate';
+            document.getElementById('roi').textContent = ((metrics.roi || 0) * 100).toFixed(1) + '%';
+
+            const accuracyEl = document.getElementById('accuracy');
+            if (metrics.accuracy >= 0.75) {
+                accuracyEl.className = 'metric positive';
+            } else if (metrics.accuracy >= 0.60) {
+                accuracyEl.className = 'metric neutral';
+            } else {
+                accuracyEl.className = 'metric negative';
+            }
+
+            updateCharts(metrics);
+            updateTable(metrics.recent_predictions || []);
+
+            document.getElementById('systemStatus').textContent = 'System Healthy';
+            document.getElementById('systemStatus').className = 'status-badge';
+        }
+
+        function updateCharts(metrics) {
+            const ctx1 = document.getElementById('accuracyChart').getContext('2d');
+            const ctx2 = document.getElementById('predictionTypesChart').getContext('2d');
+
+            if (accuracyChart) accuracyChart.destroy();
+            if (predictionTypesChart) predictionTypesChart.destroy();
+
+            accuracyChart = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: metrics.days || [],
+                    datasets: [{
+                        label: 'Accuracy',
+                        data: metrics.daily_accuracy || [],
+                        borderColor: '#58a6ff',
+                        backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+                        y: {
+                            grid: { color: '#30363d' },
+                            ticks: { color: '#8b949e' },
+                            min: 0,
+                            max: 1
+                        }
+                    }
+                }
+            });
+
+            predictionTypesChart = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(metrics.by_type || {}),
+                    datasets: [{
+                        data: Object.values(metrics.by_type || {}).map(v => v.total),
+                        backgroundColor: ['#58a6ff', '#3fb950', '#d29922', '#f85149']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'bottom', labels: { color: '#8b949e' } } }
+                }
+            });
+        }
+
+        function updateTable(predictions) {
+            const tbody = document.getElementById('predictionsTable');
+            tbody.innerHTML = predictions.map(p => `
+                <tr>
+                    <td>${p.match}</td>
+                    <td>${p.type}</td>
+                    <td>${p.predicted}</td>
+                    <td>${(p.probability * 100).toFixed(1)}%</td>
+                    <td>
+                        <div class="progress-bar">
+                            <div class="progress-fill ${p.confidence >= 0.75 ? '' : 'warning'}" style="width: ${p.confidence * 100}%"></div>
+                        </div>
+                    </td>
+                    <td>${p.result || '-'}</td>
+                </tr>
+            `).join('');
+        }
+
+        setInterval(refreshDashboard, 60000);
+        refreshDashboard();
+    </script>
+</body>
+</html>
