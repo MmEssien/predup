@@ -72,8 +72,6 @@ async def health_check():
     )
 
 
-@router.get("/debug/audit")
-@router.get("/debug/sample-predictions")
 @router.get("/debug/test-football-api")
 async def debug_test_football_api():
     """Debug endpoint - test football API directly"""
@@ -113,6 +111,7 @@ async def debug_test_football_api():
     return {"status": "success", "data": results}
 
 
+@router.get("/debug/audit")
 async def system_audit():
     """System-wide audit for root cause analysis"""
     from sqlalchemy import text
