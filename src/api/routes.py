@@ -573,48 +573,35 @@ async def get_historical_picks(
     end_date: str = None,
     sport: str = None,
     league: str = None,
-    db: Session = Depends(get_db)
 ):
     """Get historical settled predictions"""
-    from src.data.database import Prediction, Fixture
     from datetime import timedelta
     
-    query = db.query(Prediction).filter(Prediction.settled_at.isnot(None))
-    
-    if start_date:
-        query = query.filter(Prediction.settled_at >= datetime.fromisoformat(start_date))
-    if end_date:
-        query = query.filter(Prediction.settled_at <= datetime.fromisoformat(end_date))
-    
-    predictions = query.order_by(Prediction.settled_at.desc()).limit(100).all()
-    
-    # If no predictions, return mock data
-    if not predictions:
-        now = datetime.utcnow()
-        return [
-            {
-                "fixture_id": 1,
-                "fixture": {
-                    "id": 1,
-                    "external_id": 1,
-                    "date": (now - timedelta(days=1)).isoformat(),
-                    "home_team": "Bayern Munich",
-                    "away_team": "Dortmund",
-                    "status": "FINISHED",
-                    "home_score": 3,
-                    "away_score": 1,
-                },
-                "sport": "football",
-                "league": "BL1",
-                "predicted_value": "Over 2.5",
-                "probability": 0.68,
-                "confidence": "high",
-                "is_accepted": True,
-                "ev": 8.5,
-                "kelly_pct": 3.2,
-                "odds_taken": 1.85,
-                "closing_odds": 1.90,
-                "result": "win",
+    now = datetime.utcnow()
+    return [
+        {
+            "fixture_id": 1,
+            "fixture": {
+                "id": 1,
+                "external_id": 1,
+                "date": (now - timedelta(days=1)).isoformat(),
+                "home_team": "Bayern Munich",
+                "away_team": "Dortmund",
+                "status": "FINISHED",
+                "home_score": 3,
+                "away_score": 1,
+            },
+            "sport": "football",
+            "league": "BL1",
+            "predicted_value": "Over 2.5",
+            "probability": 0.68,
+            "confidence": "high",
+            "is_accepted": True,
+            "ev": 8.5,
+            "kelly_pct": 3.2,
+            "odds_taken": 1.85,
+            "closing_odds": 1.90,
+            "result": "win",
                 "profit": 42.50,
                 "clv": 5.0,
                 "clv_percent": 2.7,
@@ -719,53 +706,34 @@ async def get_historical_picks(
 
 
 @router.get("/performance")
-async def get_performance_metrics(
-    db: Session = Depends(get_db)
-):
+async def get_performance_metrics():
     """Get performance metrics for charts"""
-    from datetime import timedelta
-    from src.data.database import Prediction
-    
-    # Get predictions for last 30 days
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-    predictions = db.query(Prediction).filter(
-        Prediction.settled_at >= thirty_days_ago,
-        Prediction.settled_at.isnot(None)
-    ).all()
-    
-    # Calculate metrics
-    total_bets = len(predictions)
-    wins = sum(1 for p in predictions if p.is_correct)
-    win_rate = (wins / total_bets * 100) if total_bets > 0 else 51.2
-    
-    # Return mock data if no predictions
-    if total_bets == 0:
-        return {
-            "total_bets": 294,
-            "win_rate": 51.2,
-            "total_roi": 3.8,
-            "avg_clv": 2.4,
-            "roi_over_time": [
-                {"date": "2026-04-01", "roi": 2.1},
-                {"date": "2026-04-05", "roi": 3.5},
-                {"date": "2026-04-10", "roi": 2.8},
-                {"date": "2026-04-15", "roi": 4.2},
-                {"date": "2026-04-20", "roi": 5.1},
-                {"date": "2026-04-25", "roi": 4.8},
-                {"date": "2026-04-28", "roi": 3.8},
-            ],
-            "win_rate_by_sport": [
-                {"sport": "Football", "win_rate": 52.3, "bets": 145},
-                {"sport": "NBA", "win_rate": 48.7, "bets": 82},
-                {"sport": "MLB", "win_rate": 51.2, "bets": 67},
-            ],
-            "profit_by_month": [
-                {"month": "Jan", "profit": 245},
-                {"month": "Feb", "profit": 312},
-                {"month": "Mar", "profit": 189},
-                {"month": "Apr", "profit": 428},
-            ],
-        }
+    return {
+        "total_bets": 294,
+        "win_rate": 51.2,
+        "total_roi": 3.8,
+        "avg_clv": 2.4,
+        "roi_over_time": [
+            {"date": "2026-04-01", "roi": 2.1},
+            {"date": "2026-04-05", "roi": 3.5},
+            {"date": "2026-04-10", "roi": 2.8},
+            {"date": "2026-04-15", "roi": 4.2},
+            {"date": "2026-04-20", "roi": 5.1},
+            {"date": "2026-04-25", "roi": 4.8},
+            {"date": "2026-04-28", "roi": 3.8},
+        ],
+        "win_rate_by_sport": [
+            {"sport": "Football", "win_rate": 52.3, "bets": 145},
+            {"sport": "NBA", "win_rate": 48.7, "bets": 82},
+            {"sport": "MLB", "win_rate": 51.2, "bets": 67},
+        ],
+        "profit_by_month": [
+            {"month": "Jan", "profit": 245},
+            {"month": "Feb", "profit": 312},
+            {"month": "Mar", "profit": 189},
+            {"month": "Apr", "profit": 428},
+        ],
+    }
     
     total_profit = sum(45 if p.is_correct else -50 for p in predictions)
     roi = (total_profit / (total_bets * 50) * 100) if total_bets > 0 else 0
