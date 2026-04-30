@@ -600,85 +600,44 @@ async def get_live_predictions(
 
 @router.get("/predictions/history")
 async def get_historical_picks(
-    start_date: str = None,
-    end_date: str = None,
-    sport: str = None,
-    league: str = None,
+    db: Session = Depends(get_db),
+    limit: int = 50
 ):
-    """Get historical picks - returns sample data for demo"""
-    from datetime import timedelta
+    """Get historical settled picks from the database"""
+    from src.utils.helpers import convert_to_lagos_time
     
-    now = datetime.utcnow()
-    return [
-        {
-            "fixture_id": 1,
+    # Query settled predictions (where settled_at is not null)
+    predictions = db.query(Prediction).filter(
+        Prediction.settled_at.isnot(None)
+    ).order_by(desc(Prediction.settled_at)).limit(limit).all()
+    
+    results = []
+    for pred in predictions:
+        fixture = pred.fixture
+        results.append({
+            "fixture_id": pred.fixture_id,
             "fixture": {
-                "id": 1,
-                "external_id": 1,
-                "date": (now - timedelta(days=1)).isoformat(),
-                "home_team": "Bayern Munich",
-                "away_team": "Dortmund",
-                "status": "FINISHED",
-                "home_score": 3,
-                "away_score": 1,
+                "id": fixture.id,
+                "external_id": fixture.external_id,
+                "date": convert_to_lagos_time(fixture.utc_date).isoformat(),
+                "home_team": fixture.home_team.name if fixture.home_team else "Unknown",
+                "away_team": fixture.away_team.name if fixture.away_team else "Unknown",
+                "status": fixture.status,
+                "home_score": fixture.home_score,
+                "away_score": fixture.away_score,
             },
-            "sport": "football",
-            "league": "BL1",
-            "predicted_value": "Over 2.5",
-            "probability": 0.68,
-            "confidence": "high",
-            "is_accepted": True,
-            "ev": 8.5,
-            "kelly_pct": 3.2,
-            "odds_taken": 1.85,
-            "closing_odds": 1.90,
-            "result": "win",
-            "profit": 42.50,
-            "clv": 5.0,
-            "clv_percent": 2.7,
-            "created_at": (now - timedelta(hours=5)).isoformat(),
-            "settled_at": (now - timedelta(hours=1)).isoformat(),
-        },
-        {
-            "fixture_id": 2,
-            "fixture": {
-                "id": 2,
-                "external_id": 2,
-                "date": (now - timedelta(days=2)).isoformat(),
-                "home_team": "Manchester City",
-                "away_team": "Arsenal",
-                "status": "FINISHED",
-                "home_score": 1,
-                "away_score": 1,
-            },
-            "sport": "football",
-            "league": "PL",
-            "predicted_value": "BTTS Yes",
-            "probability": 0.58,
-            "confidence": "medium",
-            "is_accepted": True,
-            "ev": 4.2,
-            "kelly_pct": 1.8,
-            "odds_taken": 1.75,
-            "closing_odds": 1.72,
-            "result": "win",
-            "profit": 37.50,
-            "clv": -1.7,
-            "clv_percent": -1.0,
-            "created_at": (now - timedelta(days=2, hours=6)).isoformat(),
-            "settled_at": (now - timedelta(days=2)).isoformat(),
-        },
-    ]
+            "sport": fixture.competition.area_name.lower() if fixture.competition and fixture.competition.area_name else "football",
+            "league": fixture.competition.code if fixture.competition else "Unknown",
             "predicted_value": str(pred.predicted_value),
             "probability": pred.probability,
             "confidence": "high" if pred.probability > 0.7 else "medium",
             "is_accepted": pred.is_accepted,
-            "ev": 5.0, # Placeholder
-            "kelly_pct": 2.0, # Placeholder
+            "ev": 5.0, # Placeholder until EV logic is implemented
+            "kelly_pct": 2.0, # Placeholder until Kelly logic is implemented
             "odds_taken": 1.85, # Placeholder
             "closing_odds": 1.90, # Placeholder
             "result": "win" if pred.is_correct else "loss",
-            "profit": 45.0 if pred.is_correct else -50.0,
+            "profit": 45.0 if pred.is_correct else -50.0, # Placeholder
             "clv": 2.5,
             "clv_percent": 1.3,
             "created_at": convert_to_lagos_time(pred.predicted_at).isoformat(),
@@ -689,32 +648,33 @@ async def get_historical_picks(
 
 
 @router.get("/performance")
-async def get_performance_metrics():
-    """Get performance metrics for charts"""
+async def get_performance_metrics(db: Session = Depends(get_db)):
+    """Get performance metrics for charts from DB"""
+    # Count settled predictions
+    total_bets = db.query(Prediction).filter(Prediction.settled_at.isnot(None)).count()
+    if total_bets == 0:
+        return {
+            "total_bets": 0, "win_rate": 0, "total_roi": 0, "avg_clv": 0,
+            "roi_over_time": [], "win_rate_by_sport": [], "profit_by_month": []
+        }
+    
+    wins = db.query(Prediction).filter(Prediction.is_correct.is_(True)).count()
+    win_rate = (wins / total_bets) * 100
+    
+    # Static placeholders for complex aggregates for now
     return {
-        "total_bets": 294,
-        "win_rate": 51.2,
-        "total_roi": 3.8,
+        "total_bets": total_bets,
+        "win_rate": round(win_rate, 1),
+        "total_roi": 3.8, # Logic for ROI calculation needed
         "avg_clv": 2.4,
         "roi_over_time": [
-            {"date": "2026-04-01", "roi": 2.1},
-            {"date": "2026-04-05", "roi": 3.5},
-            {"date": "2026-04-10", "roi": 2.8},
-            {"date": "2026-04-15", "roi": 4.2},
-            {"date": "2026-04-20", "roi": 5.1},
-            {"date": "2026-04-25", "roi": 4.8},
             {"date": "2026-04-28", "roi": 3.8},
         ],
         "win_rate_by_sport": [
-            {"sport": "Football", "win_rate": 52.3, "bets": 145},
-            {"sport": "NBA", "win_rate": 48.7, "bets": 82},
-            {"sport": "MLB", "win_rate": 51.2, "bets": 67},
+            {"sport": "Football", "win_rate": round(win_rate, 1), "bets": total_bets},
         ],
         "profit_by_month": [
-            {"month": "Jan", "profit": 245},
-            {"month": "Feb", "profit": 312},
-            {"month": "Mar", "profit": 189},
-            {"month": "Apr", "profit": 428},
+            {"month": "Apr", "profit": wins * 10},
         ],
     }
 
@@ -722,41 +682,25 @@ async def get_performance_metrics():
 @router.get("/fixtures/{fixture_id}")
 async def get_fixture_detail(
     fixture_id: int,
+    db: Session = Depends(get_db)
 ):
-    """Get detailed fixture information for frontend"""
-    from datetime import timedelta
+    """Get detailed fixture information from DB"""
+    from src.utils.helpers import convert_to_lagos_time
     
-    now = datetime.utcnow()
-    fixtures = {
-        1: {"home_team": "Bayern Munich", "away_team": "Dortmund", "league": "BL1", "home_score": None, "away_score": None},
-        2: {"home_team": "Manchester City", "away_team": "Liverpool", "league": "PL", "home_score": None, "away_score": None},
-        3: {"home_team": "Lakers", "away_team": "Warriors", "league": "NBA", "home_score": None, "away_score": None},
-    }
+    fixture = db.query(Fixture).filter(Fixture.id == fixture_id).first()
+    if not fixture:
+        raise HTTPException(status_code=404, detail="Fixture not found")
+        
+    prediction = db.query(Prediction).filter(Prediction.fixture_id == fixture_id).first()
     
-    if fixture_id not in fixtures:
-        return {"error": "Fixture not found", "fixture_id": fixture_id}
-    
-    f = fixtures[fixture_id]
-    return {
-        "fixture": {
-            "id": fixture_id,
-            "external_id": fixture_id,
-            "date": (now + timedelta(hours=2)).isoformat(),
-            "home_team": f["home_team"],
-            "away_team": f["away_team"],
-            "status": "SCHEDULED",
-            "home_score": f["home_score"],
-            "away_score": f["away_score"],
-            "league": f["league"],
-        },
-        "prediction": None,
-    }
+    # Get latest odds
+    odds = db.query(OddsData).filter(OddsData.fixture_id == fixture_id).order_by(desc(OddsData.created_at)).first()
     
     return {
         "fixture": {
             "id": fixture.id,
             "external_id": fixture.external_id,
-            "date": fixture.utc_date.isoformat(),
+            "date": convert_to_lagos_time(fixture.utc_date).isoformat(),
             "home_team": fixture.home_team.name if fixture.home_team else "Unknown",
             "away_team": fixture.away_team.name if fixture.away_team else "Unknown",
             "venue": fixture.venue,
@@ -766,29 +710,34 @@ async def get_fixture_detail(
             "competition": fixture.competition.name if fixture.competition else "Unknown",
         },
         "odds": {
-            "home": prediction.odds_home if prediction else 1.9,
-            "draw": 3.2,  # Placeholder
-            "away": prediction.odds_away if prediction else 1.9,
+            "home": odds.home_odds if odds else 1.9,
+            "draw": odds.draw_odds if odds else 3.2,
+            "away": odds.away_odds if odds else 1.9,
             "sources": [
-                {"name": "The Odds API", "home": prediction.odds_home if prediction else 1.9, "away": prediction.odds_away if prediction else 1.9, "updated": datetime.utcnow().isoformat()}
+                {
+                    "name": odds.provider if odds else "The Odds API", 
+                    "home": odds.home_odds if odds else 1.9, 
+                    "away": odds.away_odds if odds else 1.9, 
+                    "updated": convert_to_lagos_time(odds.created_at).isoformat() if odds else datetime.utcnow().isoformat()
+                }
             ]
         },
         "prediction": {
             "probability": prediction.probability if prediction else 0.5,
-            "confidence": prediction.confidence if prediction else "medium",
-            "ev": prediction.ev if prediction else 0,
-            "kelly_pct": prediction.kelly_pct if prediction else 0,
-            "predicted_value": prediction.predicted_value if prediction else "Unknown",
+            "confidence": "high" if prediction and prediction.probability > 0.7 else "medium",
+            "ev": 5.0 if prediction else 0,
+            "kelly_pct": 2.0 if prediction else 0,
+            "predicted_value": str(prediction.predicted_value) if prediction else "Unknown",
         },
-        "edge_explanation": "Model predicts higher probability than market implied",
-        "kelly_stake": prediction.kelly_pct * 100 if prediction else 0,
+        "edge_explanation": "Model predicts higher probability than market implied" if prediction else "No prediction available",
+        "kelly_stake": 2.0 if prediction else 0,
         "recent_form": {
-            "home": ["W", "W", "D", "L", "W"],
+            "home": ["W", "W", "D", "L", "W"], # To be implemented
             "away": ["L", "W", "W", "D", "L"]
         },
         "injuries": [],
         "lineup_status": {"home": "unknown", "away": "unknown"},
-        "confidence_score": 75,
+        "confidence_score": 75 if prediction else 0,
         "market_movement": []
     }
 
