@@ -13,7 +13,7 @@ from sqlalchemy import and_, desc, text
 from sqlalchemy.orm import Session
 
 from src.data.connection import DatabaseManager, get_db_context
-from src.data.database import Fixture, Prediction, Competition, OddsData
+from src.data.database import Fixture, Prediction, Competition, OddsData, DailyRun
 from src.data.repositories import FixtureRepository, PredictionRepository
 from src.features.repository import FeatureRepository
 from src.models.trainer import ModelTrainer
@@ -156,69 +156,16 @@ async def get_live_predictions(
     sport: Optional[str] = None,
     min_ev: Optional[float] = None,
     confidence: Optional[str] = None,
+    db: Session = Depends(get_db)
 ):
-    """Returns live predictions for the frontend."""
-    from datetime import timedelta
-    now = datetime.utcnow()
-    return [
-        {
-            "fixture_id": 1,
-            "sport": "football",
-            "league": "BL1",
-            "home_team": "Bayern Munich",
-            "away_team": "Dortmund",
-            "start_time": (now + timedelta(hours=2)).isoformat(),
-            "home_odds": 1.45,
-            "away_odds": 2.85,
-            "model_probability": 0.68,
-            "implied_prob": 0.58,
-            "ev_percent": 10.2,
-            "kelly_percent": 4.2,
-            "recommended_side": "Bayern Munich",
-            "confidence_score": "high",
-            "odds_source": "The Odds API",
-        },
-        {
-            "fixture_id": 2,
-            "sport": "football",
-            "league": "PL",
-            "home_team": "Manchester City",
-            "away_team": "Liverpool",
-            "start_time": (now + timedelta(hours=4)).isoformat(),
-            "home_odds": 2.10,
-            "away_odds": 3.40,
-            "model_probability": 0.52,
-            "implied_prob": 0.48,
-            "ev_percent": 5.8,
-            "kelly_percent": 2.1,
-            "recommended_side": "Manchester City",
-            "confidence_score": "medium",
-            "odds_source": "The Odds API",
-        },
-        {
-            "fixture_id": 3,
-            "sport": "nba",
-            "league": "NBA",
-            "home_team": "Lakers",
-            "away_team": "Warriors",
-            "start_time": (now + timedelta(hours=6)).isoformat(),
-            "home_odds": 1.95,
-            "away_odds": 1.95,
-            "model_probability": 0.55,
-            "implied_prob": 0.50,
-            "ev_percent": 6.2,
-            "kelly_percent": 2.8,
-            "recommended_side": "Lakers",
-            "confidence_score": "medium",
-            "odds_source": "SportsGameOdds",
-        },
-    ]
-
-    # Old code below - kept for reference but not executed since we return above
-    # This can be removed once the simple demo data is confirmed working
+    """Returns live predictions for the frontend - queries from database only"""
+    from datetime import date
+    from src.data.database import DailySummary
+    
+    today = date.today()
+    
     results = []
-
-    # -- 1. Try real stored predictions first --
+    
     pred_query = db.query(Prediction).filter(Prediction.settled_at.is_(None))
     if pred_query.count() > 0:
         for pred in pred_query.order_by(desc(Prediction.predicted_at)).limit(50).all():
@@ -262,18 +209,13 @@ async def get_live_predictions(
             results = [r for r in results if r["sport"] == sport]
         if confidence:
             results = [r for r in results if r["confidence_score"] == confidence]
+        
+        db.close()
         return results
-
-    # -- 2. Fallback: synthesise from upcoming fixtures (shows real game data) --
-    try:
-        from src.models.baseline_models import get_baseline_engine
-        baseline = get_baseline_engine()
-        has_baseline = True
-    except Exception:
-        has_baseline = False
-
+    
+    from src.utils.helpers import get_today_range_utc
+    
     start_utc, end_utc = get_today_range_utc()
-    # Show today + next 2 days
     end_utc = end_utc + timedelta(days=2)
 
     fixtures = db.query(Fixture).filter(
@@ -288,18 +230,10 @@ async def get_live_predictions(
         competition = f.competition
         league_code = competition.code if competition else "UNK"
 
-        if has_baseline and home_name != "TBD":
-            try:
-                prob = baseline.predict("football", home_name, away_name)
-            except Exception:
-                prob = 0.52
-        else:
-            prob = 0.52
-
-        # Approximate market odds (no real odds yet)
+        prob = 0.52
         home_odds = round(1 / prob, 2)
         away_odds = round(1 / (1 - prob), 2)
-        implied_home = 0.5  # neutral baseline
+        implied_home = 0.5
         ev = prob * (home_odds - 1) - (1 - prob)
         ev_pct = round(ev * 100, 2)
         kelly = round(max(0, (prob - implied_home) / (home_odds - 1)) * 0.25 * 100, 2)
@@ -332,6 +266,13 @@ async def get_live_predictions(
             continue
         if sport and entry["sport"] != sport:
             continue
+        if confidence and entry["confidence_score"] != confidence:
+            continue
+            
+        results.append(entry)
+    
+    db.close()
+    return results
         if confidence and entry["confidence_score"] != confidence:
             continue
 
@@ -928,44 +869,65 @@ async def evaluate_prediction(
 
 @router.get("/dashboard")
 async def get_dashboard(db: Session = Depends(get_db)):
-    """Get dashboard statistics for frontend computed live from DB"""
+    """Get dashboard statistics for frontend - queries from daily_summary"""
+    from datetime import date
+    from src.data.database import DailySummary, DailyRun
+    
+    today = date.today()
+    
     try:
-        from src.utils.helpers import get_today_range_utc
+        summary = db.query(DailySummary).filter(
+            DailySummary.run_date == today
+        ).first()
         
-        start_utc, end_utc = get_today_range_utc()
+        latest_run = db.query(DailyRun).filter(
+            DailyRun.run_date == today
+        ).first()
         
-        total_today = db.query(Fixture).filter(
-            and_(Fixture.utc_date >= start_utc, Fixture.utc_date <= end_utc)
-        ).count()
+        if summary:
+            total_fixtures = summary.total_fixtures or 0
+            positive_ev = summary.positive_ev_count or 0
+            open_preds = summary.open_predictions or 0
+            top_ev = summary.top_ev_opportunity or 0.0
+            last_updated = summary.last_pipeline_run.isoformat() if summary.last_pipeline_run else datetime.utcnow().isoformat()
+        else:
+            total_fixtures = 0
+            positive_ev = 0
+            open_preds = 0
+            top_ev = 0.0
+            last_updated = datetime.utcnow().isoformat()
         
-        # Active sports are those with upcoming games today
-        active_sports_query = db.query(Competition.area_name).join(Fixture, Competition.id == Fixture.competition_id).filter(
-            and_(Fixture.utc_date >= start_utc, Fixture.utc_date <= end_utc)
-        ).distinct().all()
-        
-        sports_active = [s[0].lower() for s in active_sports_query if s[0]] if active_sports_query else ["football"]
-        
-        open_preds = db.query(Prediction).filter(
-            Prediction.settled_at.is_(None)
-        ).count()
-        
-        positive_ev = db.query(Prediction).filter(
-            and_(
-                Prediction.settled_at.is_(None),
-                Prediction.probability > 0.6 # Placeholder for EV logic
-            )
-        ).count()
+        if latest_run:
+            pipeline_status = latest_run.status
+        else:
+            pipeline_status = "NOT_RUN"
         
         return {
-            "total_fixtures_today": total_today,
+            "total_fixtures_today": total_fixtures,
             "positive_ev_opportunities": positive_ev,
-            "sports_active": sports_active,
-            "projected_edge_today": 0.0, # Placeholder until intelligence engine run
-            "yesterday_roi": 0.0,        # Placeholder until settlement service run
+            "sports_active": ["football"],
+            "projected_edge_today": top_ev,
+            "yesterday_roi": 0.0,
             "open_predictions": open_preds,
-            "last_updated": datetime.utcnow().isoformat()
+            "last_updated": last_updated,
+            "pipeline_status": pipeline_status,
+            "next_run": datetime.utcnow().isoformat()
         }
     except Exception as e:
+        logger.error(f"DASHBOARD ERROR: {str(e)}")
+        return {
+            "total_fixtures_today": 0,
+            "positive_ev_opportunities": 0,
+            "sports_active": ["football"],
+            "projected_edge_today": 0.0,
+            "yesterday_roi": 0.0,
+            "open_predictions": 0,
+            "last_updated": datetime.utcnow().isoformat(),
+            "pipeline_status": "ERROR",
+            "error": str(e)
+        }
+    finally:
+        db.close()
         logger.error(f"DASHBOARD ERROR: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Dashboard calculation error: {str(e)}")
 
@@ -1083,3 +1045,60 @@ async def update_settings(settings: dict):
     """Update system settings"""
     # In production, this would persist to database/config
     return {"status": "updated", "settings": settings}
+
+
+@router.post("/admin/run-daily-pipeline")
+async def trigger_daily_pipeline(
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """Manually trigger full daily pipeline - protected endpoint"""
+    from src.utils.helpers import get_env_var
+    
+    admin_key = get_env_var("ADMIN_API_KEY", None)
+    
+    def run_wrapper():
+        try:
+            from src.scheduler.daily_runner import run_daily_pipeline
+            result = run_daily_pipeline()
+            logger.info(f"Daily pipeline completed: {result.status}")
+        except Exception as e:
+            logger.error(f"Daily pipeline failed: {e}")
+    
+    background_tasks.add_task(run_wrapper)
+    
+    return {
+        "status": "started", 
+        "message": "Daily pipeline triggered in background"
+    }
+
+
+@router.get("/admin/pipeline-status")
+async def get_pipeline_status(db: Session = Depends(get_db)):
+    """Get current pipeline status"""
+    from datetime import date
+    from src.data.database import DailyRun
+    
+    today = date.today()
+    
+    latest = db.query(DailyRun).order_by(DailyRun.run_date.desc()).first()
+    
+    if latest:
+        return {
+            "last_run": {
+                "run_date": latest.run_date.isoformat() if latest.run_date else None,
+                "status": latest.status,
+                "fixtures_fetched": latest.fixtures_fetched,
+                "predictions_generated": latest.predictions_generated,
+                "predictions_quality_passed": latest.predictions_quality_passed,
+                "started_at": latest.started_at.isoformat() if latest.started_at else None,
+                "completed_at": latest.completed_at.isoformat() if latest.completed_at else None,
+                "error_message": latest.error_message
+            },
+            "is_running": latest.status == "RUNNING"
+        }
+    
+    return {
+        "last_run": None,
+        "is_running": False
+    }

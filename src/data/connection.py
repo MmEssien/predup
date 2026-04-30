@@ -113,6 +113,16 @@ class DatabaseManager:
             self.session_factory = None
             logger.info("Database connection closed")
 
+    def is_connected(self) -> bool:
+        try:
+            if self.engine is None:
+                return False
+            with self.engine.connect() as conn:
+                conn.execute("SELECT 1")
+            return True
+        except Exception:
+            return False
+
 
 db_manager = DatabaseManager.get_instance()
 

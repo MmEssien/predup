@@ -705,3 +705,36 @@ class ModelHealthReport(Base):
     parameters_changed = Column(Text)
     
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DailyRun(Base):
+    __tablename__ = "daily_runs"
+    
+    id = Column(Integer, primary_key=True)
+    run_date = Column(Date, unique=True, index=True)
+    status = Column(String(50), default="PENDING")
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    fixtures_fetched = Column(Integer, default=0)
+    fixtures_processed = Column(Integer, default=0)
+    predictions_generated = Column(Integer, default=0)
+    predictions_quality_passed = Column(Integer, default=0)
+    error_message = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DailySummary(Base):
+    __tablename__ = "daily_summary"
+    
+    id = Column(Integer, primary_key=True)
+    run_date = Column(Date, index=True)
+    sport = Column(String(50))
+    league = Column(String(50))
+    total_fixtures = Column(Integer, default=0)
+    open_predictions = Column(Integer, default=0)
+    positive_ev_count = Column(Integer, default=0)
+    high_confidence_count = Column(Integer, default=0)
+    top_ev_opportunity = Column(Float, default=0.0)
+    total_ev = Column(Float, default=0.0)
+    last_pipeline_run = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)

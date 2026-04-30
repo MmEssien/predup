@@ -42,12 +42,49 @@ async def lifespan(app: FastAPI):
     router.state.registry = app.state.registry
     logger.info("Registry synced to router state")
 
-    # Start background sync
-    import asyncio
-    asyncio.create_task(run_periodic_sync())
+    # Setup scheduler for daily pipeline
+    auto_run = get_env_var("AUTO_RUN_ENABLED", "true").lower() == "true"
+    if auto_run:
+        try:
+            from apscheduler.schedulers.asyncio import AsyncIOScheduler
+            from pytz import timezone as pytz_timezone
+            
+            app.state.scheduler = AsyncIOScheduler()
+            
+            lagos = pytz_timezone("Africa/Lagos")
+            run_time = get_env_var("DAILY_RUN_TIME", "02:00")
+            hour, minute = map(int, run_time.split(":"))
+            
+            def run_daily_job():
+                try:
+                    from src.scheduler.daily_runner import run_daily_pipeline
+                    result = run_daily_pipeline()
+                    logger.info(f"Scheduled daily pipeline: {result.status}")
+                except Exception as e:
+                    logger.error(f"Scheduled daily pipeline failed: {e}")
+            
+            app.state.scheduler.add_job(
+                run_daily_job,
+                "cron",
+                hour=hour,
+                minute=minute,
+                timezone=lagos,
+                id="daily_pipeline"
+            )
+            app.state.scheduler.start()
+            logger.info(f"Daily scheduler started for {run_time} Africa/Lagos")
+            
+        except ImportError:
+            logger.warning("APScheduler not installed - daily auto-run disabled")
+        except Exception as e:
+            logger.warning(f"Scheduler setup failed: {e} - daily auto-run disabled")
 
     yield
 
+    # Shutdown scheduler
+    if hasattr(app.state, 'scheduler') and app.state.scheduler:
+        app.state.scheduler.shutdown()
+    
     db_manager.close()
     logger.info("Shutting down PredUp API...")
 
@@ -184,7 +221,25 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        return {"status": "success", "data": {"status": "healthy", "service": "predup"}, "meta": {}}
+        db_status = "connected" if db_manager.is_connected() else "disconnected"
+        
+        models_count = 0
+        if hasattr(app.state, 'registry') and app.state.registry:
+            try:
+                models_count = len(app.state.registry.list_models())
+            except Exception:
+                pass
+        
+        return {
+            "status": "success", 
+            "data": {
+                "status": "healthy", 
+                "service": "predup",
+                "database": db_status,
+                "models_loaded": models_count
+            }, 
+            "meta": {}
+        }
 
     @app.get("/")
     async def root():
