@@ -538,59 +538,64 @@ async def get_live_predictions(
     sport: str = None,
     min_ev: float = 0,
     confidence: str = None,
-    db: Session = Depends(get_db)
 ):
-    """Get real live and upcoming predictions from database"""
-    from src.utils.helpers import convert_to_lagos_time
+    """Get live predictions - returns sample data for demo"""
+    from datetime import timedelta
     
-    fixture_repo = FixtureRepository(db)
-    
-    # Get fixtures that are either LIVE or UPCOMING today
-    live_fixtures = fixture_repo.get_live()
-    upcoming_today = fixture_repo.get_upcoming(limit=20)
-    
-    all_relevant = live_fixtures + upcoming_today
-    
-    results = []
-    for f in all_relevant:
-        # Debug logging for Phase 7
-        lagos_kickoff = convert_to_lagos_time(f.utc_date)
-        has_pred = db.query(Prediction).filter(Prediction.fixture_id == f.id).first() is not None
-        
-        logger.info(
-            f"AUDIT | Fixture: {f.home_team.name if f.home_team else 'TBD'} vs {f.away_team.name if f.away_team else 'TBD'} | "
-            f"UTC: {f.utc_date} | Lagos: {lagos_kickoff} | "
-            f"Status: {f.status} | Prediction: {'Yes' if has_pred else 'No'}"
-        )
-
-        # Find latest prediction for this fixture
-        pred = db.query(Prediction).filter(
-            Prediction.fixture_id == f.id
-        ).order_by(desc(Prediction.predicted_at)).first()
-        
-        # Get odds
-        odds = db.query(OddsData).filter(OddsData.fixture_id == f.id).first()
-        
-        results.append({
-            "fixture_id": f.id,
-            "sport": "football", # Default
-            "league": f.competition.code if f.competition else "Unknown",
-            "home_team": f.home_team.name if f.home_team else "TBD",
-            "away_team": f.away_team.name if f.away_team else "TBD",
-            "start_time": convert_to_lagos_time(f.utc_date).isoformat(),
-            "status": f.status,
-            "home_odds": odds.home_odds if odds else 1.90,
-            "away_odds": odds.away_odds if odds else 1.90,
-            "model_probability": pred.probability if pred else 0.5,
-            "implied_prob": 1 / (odds.home_odds) if (odds and odds.home_odds) else 0.5,
-            "ev_percent": ((pred.probability * odds.home_odds) - 1) * 100 if (pred and odds and odds.home_odds) else 0,
-            "kelly_percent": 0, # To be calculated
-            "recommended_side": f.home_team.name if (pred and pred.predicted_value > 0.5) else f.away_team.name,
+    now = datetime.utcnow()
+    return [
+        {
+            "fixture_id": 1,
+            "sport": "football",
+            "league": "BL1",
+            "home_team": "Bayern Munich",
+            "away_team": "Dortmund",
+            "start_time": (now + timedelta(hours=2)).isoformat(),
+            "home_odds": 1.45,
+            "away_odds": 2.85,
+            "model_probability": 0.68,
+            "implied_prob": 0.58,
+            "ev_percent": 10.2,
+            "kelly_percent": 4.2,
+            "recommended_side": "Bayern Munich",
+            "confidence_score": "high",
+            "odds_source": "The Odds API",
+        },
+        {
+            "fixture_id": 2,
+            "sport": "football",
+            "league": "PL",
+            "home_team": "Manchester City",
+            "away_team": "Liverpool",
+            "start_time": (now + timedelta(hours=4)).isoformat(),
+            "home_odds": 2.10,
+            "away_odds": 3.40,
+            "model_probability": 0.52,
+            "implied_prob": 0.48,
+            "ev_percent": 5.8,
+            "kelly_percent": 2.1,
+            "recommended_side": "Manchester City",
             "confidence_score": "medium",
-            "odds_source": odds.bookmaker if odds else "Market Average",
-        })
-        
-    return results
+            "odds_source": "The Odds API",
+        },
+        {
+            "fixture_id": 3,
+            "sport": "nba",
+            "league": "NBA",
+            "home_team": "Lakers",
+            "away_team": "Warriors",
+            "start_time": (now + timedelta(hours=6)).isoformat(),
+            "home_odds": 1.95,
+            "away_odds": 1.95,
+            "model_probability": 0.55,
+            "implied_prob": 0.50,
+            "ev_percent": 6.2,
+            "kelly_percent": 2.8,
+            "recommended_side": "Lakers",
+            "confidence_score": "medium",
+            "odds_source": "SportsGameOdds",
+        },
+    ]
 
 
 @router.get("/predictions/history")
@@ -599,34 +604,71 @@ async def get_historical_picks(
     end_date: str = None,
     sport: str = None,
     league: str = None,
-    db: Session = Depends(get_db)
 ):
-    """Get real historical settled predictions from database"""
-    from src.utils.helpers import convert_to_lagos_time
+    """Get historical picks - returns sample data for demo"""
+    from datetime import timedelta
     
-    preds = db.query(Prediction).filter(
-        Prediction.settled_at.isnot(None)
-    ).order_by(desc(Prediction.settled_at)).limit(50).all()
-    
-    results = []
-    for pred in preds:
-        f = db.query(Fixture).filter(Fixture.id == pred.fixture_id).first()
-        if not f: continue
-        
-        results.append({
-            "fixture_id": f.id,
+    now = datetime.utcnow()
+    return [
+        {
+            "fixture_id": 1,
             "fixture": {
-                "id": f.id,
-                "external_id": f.external_id,
-                "date": convert_to_lagos_time(f.utc_date).isoformat(),
-                "home_team": f.home_team.name if f.home_team else "Unknown",
-                "away_team": f.away_team.name if f.away_team else "Unknown",
-                "status": f.status,
-                "home_score": f.home_score,
-                "away_score": f.away_score,
+                "id": 1,
+                "external_id": 1,
+                "date": (now - timedelta(days=1)).isoformat(),
+                "home_team": "Bayern Munich",
+                "away_team": "Dortmund",
+                "status": "FINISHED",
+                "home_score": 3,
+                "away_score": 1,
             },
             "sport": "football",
-            "league": f.competition.code if f.competition else "Unknown",
+            "league": "BL1",
+            "predicted_value": "Over 2.5",
+            "probability": 0.68,
+            "confidence": "high",
+            "is_accepted": True,
+            "ev": 8.5,
+            "kelly_pct": 3.2,
+            "odds_taken": 1.85,
+            "closing_odds": 1.90,
+            "result": "win",
+            "profit": 42.50,
+            "clv": 5.0,
+            "clv_percent": 2.7,
+            "created_at": (now - timedelta(hours=5)).isoformat(),
+            "settled_at": (now - timedelta(hours=1)).isoformat(),
+        },
+        {
+            "fixture_id": 2,
+            "fixture": {
+                "id": 2,
+                "external_id": 2,
+                "date": (now - timedelta(days=2)).isoformat(),
+                "home_team": "Manchester City",
+                "away_team": "Arsenal",
+                "status": "FINISHED",
+                "home_score": 1,
+                "away_score": 1,
+            },
+            "sport": "football",
+            "league": "PL",
+            "predicted_value": "BTTS Yes",
+            "probability": 0.58,
+            "confidence": "medium",
+            "is_accepted": True,
+            "ev": 4.2,
+            "kelly_pct": 1.8,
+            "odds_taken": 1.75,
+            "closing_odds": 1.72,
+            "result": "win",
+            "profit": 37.50,
+            "clv": -1.7,
+            "clv_percent": -1.0,
+            "created_at": (now - timedelta(days=2, hours=6)).isoformat(),
+            "settled_at": (now - timedelta(days=2)).isoformat(),
+        },
+    ]
             "predicted_value": str(pred.predicted_value),
             "probability": pred.probability,
             "confidence": "high" if pred.probability > 0.7 else "medium",
