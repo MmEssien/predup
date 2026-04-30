@@ -20,15 +20,10 @@ class DatabaseConfig:
         config = load_config()
         db_config = config.get("database", {})
 
-        self.host = os.getenv("DATABASE_HOST", db_config.get("host", "localhost"))
-        self.port = os.getenv("DATABASE_PORT", db_config.get("port", 5432))
-        self.name = os.getenv("DATABASE_NAME", db_config.get("name", "predup"))
-        self.user = os.getenv("DATABASE_USER", "predup")
-        self.password = os.getenv("DATABASE_PASSWORD", "predup")
-
         self.url = os.getenv("DATABASE_URL")
+        
         if not self.url:
-            self.url = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+            raise Exception("DATABASE_URL is not set in environment variables. Railway deployment requires DATABASE_URL.")
 
         self.pool_size = db_config.get("pool_size", 5)
         self.max_overflow = db_config.get("max_overflow", 10)
