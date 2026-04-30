@@ -99,13 +99,16 @@ def create_app() -> FastAPI:
         content_type = response.headers.get("content-type", "")
         if (request.url.path.startswith("/api/v1") and "application/json" in content_type):
             try:
-                # Standard FastAPI call_next returns a StreamingResponse
-                body = b""
-                async for chunk in response.body_iterator:
-                    body += chunk
-                
-                # We must reset the iterator so the response can still be sent if we don't return a new one
-                response.body_iterator = iterate_in_threadpool(iter([body]))
+                # Get the response body
+                # Standard FastAPI Responses have a .body property, StreamingResponses have .body_iterator
+                if hasattr(response, "body"):
+                    body = response.body
+                else:
+                    body = b""
+                    async for chunk in response.body_iterator:
+                        body += chunk
+                    # Reset iterator for safety
+                    response.body_iterator = iterate_in_threadpool(iter([body]))
                 
                 if not body:
                     return response
