@@ -12,6 +12,7 @@ from sqlalchemy import and_, desc
 from sqlalchemy.orm import Session
 
 from src.data.connection import DatabaseManager, get_db_context
+from src.data.database import Fixture, Prediction, Competition, OddsData
 from src.data.repositories import FixtureRepository, PredictionRepository
 from src.features.repository import FeatureRepository
 from src.models.trainer import ModelTrainer
