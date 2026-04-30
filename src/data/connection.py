@@ -47,7 +47,7 @@ class DatabaseManager:
         if self.engine is not None:
             return
 
-        logger.info(f"Initializing database: {self.config.host}:{self.config.port}")
+        logger.info("Initializing database using DATABASE_URL (Railway Postgres)")
 
         self.engine = create_engine(
             self.config.url,
