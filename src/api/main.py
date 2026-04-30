@@ -4,8 +4,13 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import iterate_in_threadpool
+import json
+
 
 from src.data.connection import DatabaseManager, db_manager
 from src.models.registry import create_registry
@@ -47,11 +52,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS for production - allow Vercel frontend and localhost
+    # CORS for production
+    frontend_url = get_env_var("FRONTEND_URL", "https://predup-web.vercel.app")
     allowed_origins = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "https://predup-web.vercel.app",
+        frontend_url,
     ]
     
     app.add_middleware(
@@ -61,6 +65,69 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": "error",
+                "error": "Internal Server Error",
+                "data": None,
+                "meta": {}
+            }
+        )
+
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(request: Request, exc: HTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "status": "error",
+                "error": str(exc.detail),
+                "data": None,
+                "meta": {}
+            }
+        )
+
+    @app.middleware("http")
+    async def wrap_response(request: Request, call_next):
+        response = await call_next(request)
+        
+        # Only wrap if it's a JSON response and in the /api/v1 path
+        if (request.url.path.startswith("/api/v1") and 
+            response.headers.get("content-type") == "application/json"):
+            
+            # For some responses, we might need to read the body
+            # This can be tricky with StreamingResponses, but for standard JSON it works
+            try:
+                # Consume the response body
+                body = [section async for section in response.body_iterator]
+                response.body_iterator = iterate_in_threadpool(iter(body))
+                
+                data = json.loads(body[0].decode())
+                
+                # Avoid double wrapping
+                if isinstance(data, dict) and "status" in data and ("data" in data or "error" in data):
+                    return response
+                
+                wrapped = {
+                    "status": "success",
+                    "data": data,
+                    "meta": {}
+                }
+                
+                return JSONResponse(
+                    content=wrapped,
+                    status_code=response.status_code,
+                    headers=dict(response.headers)
+                )
+            except Exception as e:
+                logger.error(f"Error wrapping response: {e}")
+                return response
+        
+        return response
 
     from src.api.routes import router
     
@@ -74,14 +141,18 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health_check():
-        return {"status": "healthy", "service": "predup"}
+        return {"status": "success", "data": {"status": "healthy", "service": "predup"}, "meta": {}}
 
     @app.get("/")
     async def root():
         return {
-            "service": "PredUp",
-            "version": "0.1.0",
-            "docs": "/docs"
+            "status": "success",
+            "data": {
+                "service": "PredUp",
+                "version": "0.1.0",
+                "docs": "/docs"
+            },
+            "meta": {}
         }
 
     return app
