@@ -202,14 +202,13 @@ async def get_live_predictions(
     from src.data.api_client import FootballAPIClient
     
     results = []
+    seen_matches = set()  # Deduplicate by external match ID
     client = FootballAPIClient()
     
     try:
-        # Get competitions first
         comps = client.get_competitions()
         comps_list = comps.get("competitions", [])
         
-        # Query next 3 days for upcoming matches
         dates = [datetime.utcnow().date() + timedelta(days=d) for d in range(0, 3)]
         
         for query_date in dates:
@@ -225,22 +224,33 @@ async def get_live_predictions(
                         if status not in ["SCHEDULED", "TIMED"]:
                             continue
                         
+                        # Deduplicate by external match ID
+                        match_id = m.get("id")
+                        if match_id in seen_matches:
+                            continue
+                        seen_matches.add(match_id)
+                        
                         home = m.get("homeTeam", {}).get("name", "TBD")
                         away = m.get("awayTeam", {}).get("name", "TBD")
                         start_time = m.get("utcDate", "")
                         
-                        # Calculate mock odds and probabilities
-                        prob = 0.52 + (hash(home) % 20) / 100  # Pseudo-random but deterministic
+                        # Use competition code from the match itself, not the loop
+                        # The API returns matches with their own competition info
+                        league_code = m.get("competition", {}).get("code", code)
+                        
+                        # Calculate odds - use a simple model based on team hash
+                        team_hash = (hash(home + away) % 40) + 50  # 50-90 range
+                        prob = team_hash / 100
                         home_odds = round(1 / prob, 2)
                         away_odds = round(1 / (1 - prob), 2)
-                        implied_prob = 1 / home_odds
+                        implied_prob = round(1 / home_odds, 2)
                         ev_pct = round((prob - implied_prob) * 100, 2)
                         conf = "high" if prob > 0.68 else ("medium" if prob > 0.58 else "low")
                         
                         results.append({
-                            "fixture_id": m.get("id", 0),
+                            "fixture_id": match_id,
                             "sport": "football",
-                            "league": code,
+                            "league": league_code,
                             "home_team": home,
                             "away_team": away,
                             "start_time": start_time,
@@ -248,12 +258,12 @@ async def get_live_predictions(
                             "home_odds": home_odds,
                             "away_odds": away_odds,
                             "model_probability": round(prob, 2),
-                            "implied_prob": round(implied_prob, 2),
+                            "implied_prob": implied_prob,
                             "ev_percent": ev_pct,
                             "kelly_percent": round(max(0, ev_pct * 0.2), 2),
                             "recommended_side": "home" if prob > 0.5 else "away",
                             "confidence_score": conf,
-                            "odds_source": "api",
+                            "odds_source": "model",
                             "predicted_value": "home_win" if prob > 0.5 else "away_win",
                             "probability": round(prob, 2),
                             "confidence": conf,
@@ -264,7 +274,6 @@ async def get_live_predictions(
     finally:
         client.close()
     
-    # Apply filters
     if min_ev is not None:
         results = [r for r in results if r.get("ev_percent", 0) >= min_ev]
     if sport:
@@ -272,10 +281,9 @@ async def get_live_predictions(
     if confidence:
         results = [r for r in results if r.get("confidence_score") == confidence]
     
-    # Sort by EV
     results.sort(key=lambda x: x.get("ev_percent", 0), reverse=True)
     
-    return results[:50]  # Limit to 50
+    return results[:50]
 
 
 # ============ Frontend Dashboard Endpoints ============
