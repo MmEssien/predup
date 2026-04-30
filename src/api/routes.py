@@ -491,13 +491,15 @@ async def evaluate_prediction(
 async def get_dashboard():
     """Get dashboard statistics for frontend"""
     now = datetime.utcnow()
+    # In production, these would be real DB aggregations
+    # For now, we match the 3 live predictions we are serving below
     return {
-        "total_fixtures_today": 0,
-        "positive_ev_opportunities": 0,
-        "sports_active": ["football"],
+        "total_fixtures_today": 3,
+        "positive_ev_opportunities": 3,
+        "sports_active": ["football", "nba"],
         "projected_edge_today": 5.2,
         "yesterday_roi": 3.8,
-        "open_predictions": 0,
+        "open_predictions": 3,
         "last_updated": now.isoformat()
     }
 
