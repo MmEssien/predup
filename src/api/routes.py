@@ -202,14 +202,16 @@ async def get_live_predictions(
     from src.data.api_client import FootballAPIClient
     
     results = []
-    seen_matches = set()  # Deduplicate by external match ID
+    seen_matches = set()
     client = FootballAPIClient()
+    now = datetime.utcnow()
     
     try:
         comps = client.get_competitions()
         comps_list = comps.get("competitions", [])
         
-        dates = [datetime.utcnow().date() + timedelta(days=d) for d in range(0, 3)]
+        # Query only tomorrow and day after (not today which may have past matches)
+        dates = [now.date() + timedelta(days=d) for d in range(1, 4)]
         
         for query_date in dates:
             for comp in comps_list:
@@ -224,7 +226,6 @@ async def get_live_predictions(
                         if status not in ["SCHEDULED", "TIMED"]:
                             continue
                         
-                        # Deduplicate by external match ID
                         match_id = m.get("id")
                         if match_id in seen_matches:
                             continue
@@ -234,12 +235,17 @@ async def get_live_predictions(
                         away = m.get("awayTeam", {}).get("name", "TBD")
                         start_time = m.get("utcDate", "")
                         
-                        # Use competition code from the match itself, not the loop
-                        # The API returns matches with their own competition info
+                        # Get actual match time and check it's in the future
+                        try:
+                            kickoff = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                            if kickoff <= now:
+                                continue  # Skip past matches
+                        except:
+                            pass
+                        
                         league_code = m.get("competition", {}).get("code", code)
                         
-                        # Calculate odds - use a simple model based on team hash
-                        team_hash = (hash(home + away) % 40) + 50  # 50-90 range
+                        team_hash = (hash(home + away) % 40) + 50
                         prob = team_hash / 100
                         home_odds = round(1 / prob, 2)
                         away_odds = round(1 / (1 - prob), 2)
