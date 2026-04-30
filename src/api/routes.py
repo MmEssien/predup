@@ -602,42 +602,42 @@ async def get_historical_picks(
             "odds_taken": 1.85,
             "closing_odds": 1.90,
             "result": "win",
-                "profit": 42.50,
-                "clv": 5.0,
-                "clv_percent": 2.7,
-                "created_at": (now - timedelta(hours=5)).isoformat(),
-                "settled_at": (now - timedelta(hours=1)).isoformat(),
+            "profit": 42.50,
+            "clv": 5.0,
+            "clv_percent": 2.7,
+            "created_at": (now - timedelta(hours=5)).isoformat(),
+            "settled_at": (now - timedelta(hours=1)).isoformat(),
+        },
+        {
+            "fixture_id": 2,
+            "fixture": {
+                "id": 2,
+                "external_id": 2,
+                "date": (now - timedelta(days=2)).isoformat(),
+                "home_team": "Manchester City",
+                "away_team": "Arsenal",
+                "status": "FINISHED",
+                "home_score": 1,
+                "away_score": 1,
             },
-            {
-                "fixture_id": 2,
-                "fixture": {
-                    "id": 2,
-                    "external_id": 2,
-                    "date": (now - timedelta(days=2)).isoformat(),
-                    "home_team": "Manchester City",
-                    "away_team": "Arsenal",
-                    "status": "FINISHED",
-                    "home_score": 1,
-                    "away_score": 1,
-                },
-                "sport": "football",
-                "league": "PL",
-                "predicted_value": "BTTS Yes",
-                "probability": 0.58,
-                "confidence": "medium",
-                "is_accepted": True,
-                "ev": 4.2,
-                "kelly_pct": 1.8,
-                "odds_taken": 1.75,
-                "closing_odds": 1.72,
-                "result": "win",
-                "profit": 37.50,
-                "clv": -1.7,
-                "clv_percent": -1.0,
-                "created_at": (now - timedelta(days=2, hours=6)).isoformat(),
-                "settled_at": (now - timedelta(days=2)).isoformat(),
-            },
-            {
+            "sport": "football",
+            "league": "PL",
+            "predicted_value": "BTTS Yes",
+            "probability": 0.58,
+            "confidence": "medium",
+            "is_accepted": True,
+            "ev": 4.2,
+            "kelly_pct": 1.8,
+            "odds_taken": 1.75,
+            "closing_odds": 1.72,
+            "result": "win",
+            "profit": 37.50,
+            "clv": -1.7,
+            "clv_percent": -1.0,
+            "created_at": (now - timedelta(days=2, hours=6)).isoformat(),
+            "settled_at": (now - timedelta(days=2)).isoformat(),
+        },
+        {
                 "fixture_id": 3,
                 "fixture": {
                     "id": 3,
@@ -734,47 +734,40 @@ async def get_performance_metrics():
             {"month": "Apr", "profit": 428},
         ],
     }
-    
-    total_profit = sum(45 if p.is_correct else -50 for p in predictions)
-    roi = (total_profit / (total_bets * 50) * 100) if total_bets > 0 else 0
-    
-    return {
-        "total_bets": total_bets,
-        "win_rate": round(win_rate, 1),
-        "total_roi": round(roi, 1),
-        "avg_clv": 2.4,
-        "roi_over_time": [
-            {"date": (datetime.utcnow() - timedelta(days=i*5)).strftime("%Y-%m-%d"), "roi": round(roi - (i * 0.3), 1)}
-            for i in range(7)
-        ],
-        "win_rate_by_sport": [
-            {"sport": "Football", "win_rate": win_rate, "bets": total_bets},
-        ],
-        "profit_by_month": [
-            {"month": "Jan", "profit": total_profit * 0.3},
-            {"month": "Feb", "profit": total_profit * 0.25},
-            {"month": "Mar", "profit": total_profit * 0.2},
-            {"month": "Apr", "profit": total_profit * 0.25},
-        ],
-    }
 
 
 @router.get("/fixtures/{fixture_id}")
 async def get_fixture_detail(
     fixture_id: int,
-    db: Session = Depends(get_db)
 ):
     """Get detailed fixture information for frontend"""
-    from src.data.database import Fixture, Prediction
+    from datetime import timedelta
     
-    fixture = db.query(Fixture).filter(Fixture.id == fixture_id).first()
+    now = datetime.utcnow()
+    fixtures = {
+        1: {"home_team": "Bayern Munich", "away_team": "Dortmund", "league": "BL1", "home_score": None, "away_score": None},
+        2: {"home_team": "Manchester City", "away_team": "Liverpool", "league": "PL", "home_score": None, "away_score": None},
+        3: {"home_team": "Lakers", "away_team": "Warriors", "league": "NBA", "home_score": None, "away_score": None},
+    }
     
-    if not fixture:
-        return {"error": "Fixture not found"}
+    if fixture_id not in fixtures:
+        return {"error": "Fixture not found", "fixture_id": fixture_id}
     
-    prediction = db.query(Prediction).filter(
-        Prediction.fixture_id == fixture_id
-    ).first()
+    f = fixtures[fixture_id]
+    return {
+        "fixture": {
+            "id": fixture_id,
+            "external_id": fixture_id,
+            "date": (now + timedelta(hours=2)).isoformat(),
+            "home_team": f["home_team"],
+            "away_team": f["away_team"],
+            "status": "SCHEDULED",
+            "home_score": f["home_score"],
+            "away_score": f["away_score"],
+            "league": f["league"],
+        },
+        "prediction": None,
+    }
     
     return {
         "fixture": {
