@@ -34,6 +34,11 @@ async def lifespan(app: FastAPI):
 
     app.state.registry = create_registry("models")
     logger.info("Model registry loaded")
+    
+    # Sync to router state as well
+    from src.api.routes import router
+    router.state.registry = app.state.registry
+    logger.info("Registry synced to router state")
 
     yield
 

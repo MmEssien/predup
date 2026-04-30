@@ -79,7 +79,13 @@ async def system_audit(db: Session = Depends(get_db)):
             count = db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
             
             # Check latest update
-            date_col = "updated_at" if table in ["fixtures", "predictions"] else "created_at"
+            if table == "predictions":
+                date_col = "predicted_at"
+            elif table == "prediction_history":
+                date_col = "created_at"
+            else:
+                date_col = "updated_at" if table == "fixtures" else "created_at"
+                
             latest = db.execute(text(f"SELECT MAX({date_col}) FROM {table}")).scalar()
             
             audit_results[table] = {
@@ -96,11 +102,40 @@ async def system_audit(db: Session = Depends(get_db)):
             "timestamp": datetime.utcnow().isoformat(),
             "env": {
                 "DATABASE_URL": "SET" if os.getenv("DATABASE_URL") else "MISSING",
-                "FOOTBALL_DATA_API_KEY": "SET" if os.getenv("FOOTBALL_DATA_API_KEY") else "MISSING",
-                "ODDS_API_KEY": "SET" if os.getenv("THE_ODDS_API_KEY") else "MISSING",
+                "API_FOOTBALL_DATA_KEY": "SET" if os.getenv("API_FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_API_KEY") else "MISSING",
+                "ODDS_API_KEY": "SET" if os.getenv("ODDS_API_KEY") else "MISSING",
             }
         }
     }
+
+
+@router.post("/debug/sync")
+async def trigger_sync(db: Session = Depends(get_db)):
+    """Trigger a manual data sync for forensics"""
+    import subprocess
+    import sys
+    import os
+    
+    # We run the ingestion script as a subprocess to avoid blocking the API too long
+    # and to reuse the existing script logic cleanly.
+    try:
+        script_path = os.path.join(os.getcwd(), "scripts", "ingest_data.py")
+        if not os.path.exists(script_path):
+             return {"status": "error", "message": f"Script not found at {script_path}"}
+             
+        process = subprocess.Popen(
+            [sys.executable, script_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return {
+            "status": "success", 
+            "message": "Sync started in background", 
+            "pid": process.pid
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @router.get("/calibration/status")
@@ -167,6 +202,7 @@ async def get_upcoming_fixtures(
 @router.post("/predict", response_model=PredictionResponse)
 async def predict(
     request: PredictionRequest,
+    req_obj: Request,
     db: Session = Depends(get_db)
 ):
     config = load_config()
@@ -195,12 +231,18 @@ async def predict(
     trainer.feature_names = feature_names
 
     try:
-        registry = router.state.registry
+        registry = req_obj.app.state.registry
+        if not registry:
+             registry = router.state.registry # Fallback
+             
+        if not registry:
+             raise Exception("Registry not found in app state")
+             
         model = registry.load_model("xgboost")
         trainer.models["xgboost"] = model
     except Exception as e:
         logger.error(f"Model loading error: {e}")
-        raise HTTPException(status_code=503, detail="No trained model available")
+        raise HTTPException(status_code=503, detail=f"No trained model available: {str(e)}")
 
     probs = trainer.predict_proba(X)
     ensemble_prob = trainer.ensemble_proba(X, weights=model_config.get("ensemble_weights"))
@@ -229,6 +271,7 @@ async def predict(
 @router.post("/predict/batch", response_model=BatchPredictionResponse)
 async def batch_predict(
     request: BatchPredictionRequest,
+    req_obj: Request,
     db: Session = Depends(get_db)
 ):
     config = load_config()
@@ -246,7 +289,7 @@ async def batch_predict(
                 fixture_id=fixture_id,
                 confidence_threshold=request.confidence_threshold
             )
-            pred_resp = await predict(req, db)
+            pred_resp = await predict(req, req_obj, db)
 
             predictions.append(pred_resp)
 
