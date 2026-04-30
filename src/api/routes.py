@@ -220,7 +220,7 @@ def format_datetime(dt_str: str) -> str:
         return dt_str[:16] if dt_str else "TBD"
 
 
-def fetch_sport_fixtures(sport: str) -> List[Dict]:
+def fetch_sport_fixtures(sport: str) -> list:
     """Fetch fixtures from any supported sport"""
     from datetime import datetime, timedelta
     
