@@ -152,7 +152,7 @@ class DailyBatchRunner:
                 
                 for query_date in dates_to_query:
                     try:
-                        matches = client.get_matches(comp_id=comp_id, date=query_date.isoformat())
+                        matches = client.get_matches(competition_code=code, date=query_date.isoformat())
                         for match in matches.get("matches", []):
                             # Only add SCHEDULED or TIMED matches (not finished ones)
                             status = match.get("status", "")
