@@ -40,10 +40,31 @@ async def lifespan(app: FastAPI):
     router.state.registry = app.state.registry
     logger.info("Registry synced to router state")
 
+    # Start background sync
+    import asyncio
+    asyncio.create_task(run_periodic_sync())
+
     yield
 
     db_manager.close()
     logger.info("Shutting down PredUp API...")
+
+
+async def run_periodic_sync():
+    """Background task to sync data every 6 hours"""
+    import asyncio
+    from scripts.ingest_data import main as run_ingest
+    
+    while True:
+        try:
+            logger.info("Starting background data sync...")
+            run_ingest()
+            logger.info("Background data sync completed.")
+        except Exception as e:
+            logger.error(f"Background data sync failed: {e}")
+        
+        # Sleep for 6 hours
+        await asyncio.sleep(6 * 3600)
 
 
 def create_app() -> FastAPI:

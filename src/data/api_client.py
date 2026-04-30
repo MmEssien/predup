@@ -91,10 +91,10 @@ class FootballAPIClient:
     """Client for API-Football (football-data.org) - Optimized"""
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        self.api_key = api_key or os.getenv("API_FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_API_KEY")
+        self.api_key = api_key or os.getenv("FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_API_KEY")
         self.base_url = base_url or os.getenv(
             "FOOTBALL_DATA_URL",
-            "https://api.football-data-org/v4"
+            "https://api.football-data.org/v4"
         )
         self.timeout = 30
         self._client: Optional[httpx.Client] = None

@@ -68,30 +68,35 @@ async def health_check():
 
 
 @router.get("/debug/audit")
-async def system_audit(db: Session = Depends(get_db)):
+async def system_audit():
     """System-wide audit for root cause analysis"""
+    from sqlalchemy import text
+    db_manager = DatabaseManager.get_instance()
+    
     tables = ["fixtures", "predictions", "odds_data", "competitions", "teams", "prediction_history"]
     audit_results = {}
     
     for table in tables:
+        # Use a fresh session for each table to avoid transaction abortion issues
         try:
-            # Check count
-            count = db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
-            
-            # Check latest update
-            if table == "predictions":
-                date_col = "predicted_at"
-            elif table == "prediction_history":
-                date_col = "created_at"
-            else:
-                date_col = "updated_at" if table == "fixtures" else "created_at"
+            with db_manager.session() as db:
+                # Check count
+                count = db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
                 
-            latest = db.execute(text(f"SELECT MAX({date_col}) FROM {table}")).scalar()
-            
-            audit_results[table] = {
-                "count": count,
-                "latest_update": latest.isoformat() if latest else None
-            }
+                # Check latest update
+                if table == "predictions":
+                    date_col = "predicted_at"
+                elif table == "prediction_history":
+                    date_col = "created_at"
+                else:
+                    date_col = "updated_at" if table == "fixtures" else "created_at"
+                    
+                latest = db.execute(text(f"SELECT MAX({date_col}) FROM {table}")).scalar()
+                
+                audit_results[table] = {
+                    "count": count,
+                    "latest_update": latest.isoformat() if latest else None
+                }
         except Exception as e:
             audit_results[table] = {"error": str(e).splitlines()[0]}
             
@@ -102,8 +107,9 @@ async def system_audit(db: Session = Depends(get_db)):
             "timestamp": datetime.utcnow().isoformat(),
             "env": {
                 "DATABASE_URL": "SET" if os.getenv("DATABASE_URL") else "MISSING",
-                "API_FOOTBALL_DATA_KEY": "SET" if os.getenv("API_FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_API_KEY") else "MISSING",
+                "FOOTBALL_DATA_KEY": "SET" if os.getenv("FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_DATA_KEY") or os.getenv("API_FOOTBALL_API_KEY") else "MISSING",
                 "ODDS_API_KEY": "SET" if os.getenv("ODDS_API_KEY") else "MISSING",
+                "SPORTSGAMEODDS_KEY": "SET" if os.getenv("SPORTSGAMEODDS_KEY") else "MISSING",
             }
         }
     }
