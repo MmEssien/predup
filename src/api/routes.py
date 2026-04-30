@@ -49,32 +49,58 @@ def get_registry():
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
+    """Health check endpoint"""
     db_manager = DatabaseManager.get_instance()
-
+    db_status = "connected"
     try:
-        db_manager.initialize()
-        db_status = "connected"
-    except:
-        db_status = "disconnected"
-
-    models_loaded = 0
-    calibrator_loaded = False
-    
-    if hasattr(router.state, "registry") and router.state.registry is not None:
-        try:
-            models_loaded = len(router.state.registry.list_models())
-        except:
-            models_loaded = 0
-    
-    if hasattr(router.state, "calibrator_loaded"):
-        calibrator_loaded = router.state.calibrator_loaded
+        with db_manager.session() as session:
+            session.execute(text("SELECT 1"))
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        db_status = f"error: {str(e)}"
 
     return HealthResponse(
         status="healthy",
         service="predup",
         database=db_status,
-        models_loaded=models_loaded
+        models_loaded=0
     )
+
+
+@router.get("/debug/audit")
+async def system_audit(db: Session = Depends(get_db)):
+    """System-wide audit for root cause analysis"""
+    tables = ["fixtures", "predictions", "odds_data", "competitions", "teams", "prediction_history"]
+    audit_results = {}
+    
+    for table in tables:
+        try:
+            # Check count
+            count = db.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+            
+            # Check latest update
+            date_col = "updated_at" if table in ["fixtures", "predictions"] else "created_at"
+            latest = db.execute(text(f"SELECT MAX({date_col}) FROM {table}")).scalar()
+            
+            audit_results[table] = {
+                "count": count,
+                "latest_update": latest.isoformat() if latest else None
+            }
+        except Exception as e:
+            audit_results[table] = {"error": str(e).splitlines()[0]}
+            
+    return {
+        "status": "success",
+        "data": {
+            "db_audit": audit_results,
+            "timestamp": datetime.utcnow().isoformat(),
+            "env": {
+                "DATABASE_URL": "SET" if os.getenv("DATABASE_URL") else "MISSING",
+                "FOOTBALL_DATA_API_KEY": "SET" if os.getenv("FOOTBALL_DATA_API_KEY") else "MISSING",
+                "ODDS_API_KEY": "SET" if os.getenv("THE_ODDS_API_KEY") else "MISSING",
+            }
+        }
+    }
 
 
 @router.get("/calibration/status")
