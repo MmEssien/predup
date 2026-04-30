@@ -151,6 +151,192 @@ async def run_intelligence(background_tasks: BackgroundTasks):
     return {"status": "success", "message": "Intelligence run started in background"}
 
 
+@router.get("/predictions/live")
+async def get_live_predictions(
+    sport: Optional[str] = None,
+    min_ev: Optional[float] = None,
+    confidence: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Returns live predictions for the frontend.
+    Prioritises DB-stored predictions; falls back to synthesising from upcoming
+    fixtures so the dashboard is never completely empty.
+    """
+    from src.data.database import Team
+    from src.utils.helpers import get_today_range_utc
+
+    results = []
+
+    # -- 1. Try real stored predictions first --
+    pred_query = db.query(Prediction).filter(Prediction.settled_at.is_(None))
+    if pred_query.count() > 0:
+        for pred in pred_query.order_by(desc(Prediction.predicted_at)).limit(50).all():
+            fixture = db.query(Fixture).filter(Fixture.id == pred.fixture_id).first()
+            if not fixture:
+                continue
+            home_name = fixture.home_team.name if fixture.home_team else "TBD"
+            away_name = fixture.away_team.name if fixture.away_team else "TBD"
+            competition = fixture.competition
+            league_code = competition.code if competition else "UNK"
+
+            ev_pct = round((pred.probability - 0.5) * 20, 2) if pred.probability else 0.0
+            kelly = round(max(0, (pred.probability - 0.5) / 0.5) * 0.25 * 100, 2) if pred.probability else 0.0
+            conf = "high" if pred.probability and pred.probability > 0.7 else ("medium" if pred.probability and pred.probability > 0.6 else "low")
+
+            results.append({
+                "fixture_id": fixture.id,
+                "sport": "football",
+                "league": league_code,
+                "home_team": home_name,
+                "away_team": away_name,
+                "start_time": fixture.utc_date.isoformat() if fixture.utc_date else None,
+                "status": fixture.status,
+                "home_odds": 2.0,
+                "away_odds": 2.0,
+                "model_probability": pred.probability or 0.5,
+                "implied_prob": 0.5,
+                "ev_percent": ev_pct,
+                "kelly_percent": kelly,
+                "recommended_side": "home" if pred.predicted_value == 1 else "away",
+                "confidence_score": conf,
+                "odds_source": "model",
+                "predicted_value": "home_win" if pred.predicted_value == 1 else "away_win",
+                "probability": pred.probability or 0.5,
+                "confidence": conf,
+            })
+
+        if min_ev is not None:
+            results = [r for r in results if r["ev_percent"] >= min_ev]
+        if sport:
+            results = [r for r in results if r["sport"] == sport]
+        if confidence:
+            results = [r for r in results if r["confidence_score"] == confidence]
+        return results
+
+    # -- 2. Fallback: synthesise from upcoming fixtures (shows real game data) --
+    try:
+        from src.models.baseline_models import get_baseline_engine
+        baseline = get_baseline_engine()
+        has_baseline = True
+    except Exception:
+        has_baseline = False
+
+    start_utc, end_utc = get_today_range_utc()
+    # Show today + next 2 days
+    end_utc = end_utc + timedelta(days=2)
+
+    fixtures = db.query(Fixture).filter(
+        Fixture.status == "SCHEDULED",
+        Fixture.utc_date >= start_utc,
+        Fixture.utc_date <= end_utc,
+    ).order_by(Fixture.utc_date).limit(50).all()
+
+    for f in fixtures:
+        home_name = f.home_team.name if f.home_team else "TBD"
+        away_name = f.away_team.name if f.away_team else "TBD"
+        competition = f.competition
+        league_code = competition.code if competition else "UNK"
+
+        if has_baseline and home_name != "TBD":
+            try:
+                prob = baseline.predict("football", home_name, away_name)
+            except Exception:
+                prob = 0.52
+        else:
+            prob = 0.52
+
+        # Approximate market odds (no real odds yet)
+        home_odds = round(1 / prob, 2)
+        away_odds = round(1 / (1 - prob), 2)
+        implied_home = 0.5  # neutral baseline
+        ev = prob * (home_odds - 1) - (1 - prob)
+        ev_pct = round(ev * 100, 2)
+        kelly = round(max(0, (prob - implied_home) / (home_odds - 1)) * 0.25 * 100, 2)
+        conf = "high" if prob > 0.70 else ("medium" if prob > 0.60 else "low")
+        side = "home" if prob >= 0.52 else "away"
+
+        entry = {
+            "fixture_id": f.id,
+            "sport": "football",
+            "league": league_code,
+            "home_team": home_name,
+            "away_team": away_name,
+            "start_time": f.utc_date.isoformat() if f.utc_date else None,
+            "status": f.status,
+            "home_odds": home_odds,
+            "away_odds": away_odds,
+            "model_probability": prob,
+            "implied_prob": implied_home,
+            "ev_percent": ev_pct,
+            "kelly_percent": kelly,
+            "recommended_side": side,
+            "confidence_score": conf,
+            "odds_source": "baseline",
+            "predicted_value": "home_win" if side == "home" else "away_win",
+            "probability": prob,
+            "confidence": conf,
+        }
+
+        if min_ev is not None and ev_pct < min_ev:
+            continue
+        if sport and entry["sport"] != sport:
+            continue
+        if confidence and entry["confidence_score"] != confidence:
+            continue
+
+        results.append(entry)
+
+    return results
+
+
+@router.get("/predictions/history")
+async def get_prediction_history(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    sport: Optional[str] = None,
+    league: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get historical settled predictions"""
+    query = db.query(Prediction).filter(Prediction.settled_at.isnot(None))
+
+    if start_date:
+        try:
+            query = query.filter(Prediction.predicted_at >= datetime.fromisoformat(start_date))
+        except ValueError:
+            pass
+    if end_date:
+        try:
+            query = query.filter(Prediction.predicted_at <= datetime.fromisoformat(end_date))
+        except ValueError:
+            pass
+
+    preds = query.order_by(desc(Prediction.settled_at)).limit(200).all()
+    results = []
+    for p in preds:
+        fixture = db.query(Fixture).filter(Fixture.id == p.fixture_id).first()
+        home_name = fixture.home_team.name if fixture and fixture.home_team else "?"
+        away_name = fixture.away_team.name if fixture and fixture.away_team else "?"
+        results.append({
+            "fixture_id": p.fixture_id,
+            "home_team": home_name,
+            "away_team": away_name,
+            "start_time": fixture.utc_date.isoformat() if fixture and fixture.utc_date else None,
+            "probability": p.probability,
+            "predicted_value": p.predicted_value,
+            "actual_value": p.actual_value,
+            "is_correct": p.is_correct,
+            "settled_at": p.settled_at.isoformat() if p.settled_at else None,
+            "result": "win" if p.is_correct else "loss",
+            "profit": 0.0,
+            "clv": 0.0,
+            "confidence_score": "medium",
+        })
+    return results
+
+
+
 @router.get("/calibration/status")
 async def get_calibration_status():
     """Get calibration status"""

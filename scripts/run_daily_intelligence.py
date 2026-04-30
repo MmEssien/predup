@@ -317,34 +317,51 @@ class UnifiedIntelligenceEngine:
 
         # Save to Database
         try:
-            from src.data.database import SessionLocal, Prediction, Fixture
+            from src.data.database import SessionLocal, Prediction, Fixture, Team
+            from sqlalchemy import func
             db = SessionLocal()
             
             saved_count = 0
             for p in all_preds:
-                # Find fixture in DB by team names (simplified match)
-                fixture = db.query(Fixture).filter(
-                    Fixture.home_team.ilike(p["home_team"]),
-                    Fixture.away_team.ilike(p["away_team"])
+                # Find fixture by joining through Team table
+                home_name = p.get("home_team", "")
+                away_name = p.get("away_team", "")
+                
+                HomeTeam = db.query(Team).filter(
+                    func.lower(Team.name) == home_name.lower()
                 ).first()
+                AwayTeam = db.query(Team).filter(
+                    func.lower(Team.name) == away_name.lower()
+                ).first()
+                
+                fixture = None
+                if HomeTeam and AwayTeam:
+                    fixture = db.query(Fixture).filter(
+                        Fixture.home_team_id == HomeTeam.id,
+                        Fixture.away_team_id == AwayTeam.id,
+                        Fixture.status == "SCHEDULED"
+                    ).first()
                 
                 if fixture:
                     # Check if prediction already exists
                     existing = db.query(Prediction).filter(
-                        Prediction.fixture_id == fixture.id
+                        Prediction.fixture_id == fixture.id,
+                        Prediction.prediction_type == "h2h"
                     ).first()
                     
                     if not existing:
                         db_pred = Prediction(
                             fixture_id=fixture.id,
                             prediction_type="h2h",
-                            predicted_value=1.0 if p["bet_on"] == "home" else (2.0 if p["bet_on"] == "away" else 0.0),
+                            predicted_value=1.0 if p["bet_on"] == "home" else 2.0,
                             probability=p["baseline_prob"],
-                            confidence=0.7, # Default confidence
+                            confidence=0.7,
                             predicted_at=datetime.now()
                         )
                         db.add(db_pred)
                         saved_count += 1
+                else:
+                    logger.warning(f"No fixture match for {home_name} vs {away_name}")
             
             db.commit()
             db.close()
