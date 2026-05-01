@@ -152,6 +152,7 @@ class UnifiedOddsEngine:
         for src in priority_order:
             if result:
                 break
+            print(f"[ODDS ENGINE DEBUG] Trying source: {src}")
             if src == "oddsportal" and self.oddsportal:
                 try:
                     if self.oddsportal.is_available():
