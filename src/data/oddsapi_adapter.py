@@ -146,6 +146,8 @@ class OddsAPIAdapter:
     
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.getenv("ODDS_API_KEY", "")
+        print(f"[ODDSAPI INIT] api_key set: {bool(self.api_key)}, length: {len(self.api_key) if self.api_key else 0}")
+        print(f"[ODDSAPI INIT] ODDS_API_KEY env: {str(os.getenv('ODDS_API_KEY'))[:20] if os.getenv('ODDS_API_KEY') else None}")
         self.base_url = "https://api.the-odds-api.com/v4"
         self.timeout = 15
         self._client: Optional[httpx.Client] = None
