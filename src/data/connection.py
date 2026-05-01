@@ -95,8 +95,11 @@ class DatabaseManager:
 
     def create_all(self) -> None:
         self.initialize()
-        Base.metadata.create_all(self.engine)
-        logger.info("Database tables created")
+        try:
+            Base.metadata.create_all(self.engine)
+            logger.info("Database tables created")
+        except Exception as e:
+            logger.warning(f"Some tables may already exist: {e}")
 
     def drop_all(self) -> None:
         self.initialize()
