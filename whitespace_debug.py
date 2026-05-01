@@ -13,8 +13,10 @@ log.write(f"Key bytes: {key.encode('utf-8') if key else b''}\n")
 if key:
     log.write(f"Has leading space: {key[0] == ' '}\n")
     log.write(f"Has trailing space: {key[-1] == ' '}\n")
-    log.write(f"Has newline: {'\n' in key}\n")
-    log.write(f"Has carriage return: {'\r' in key}\n")
+    has_newline = chr(10) in key  # \n
+    has_cr = chr(13) in key  # \r
+    log.write(f"Has newline: {has_newline}\n")
+    log.write(f"Has carriage return: {has_cr}\n")
 
 # Test with stripped key
 import httpx
