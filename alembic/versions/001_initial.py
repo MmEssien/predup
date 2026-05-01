@@ -30,8 +30,11 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.PrimaryKeyConstraint('id')
     )
-    op.create_index(op.f('ix_teams_external_id'), 'teams', ['external_id'], unique=True)
-    op.create_index(op.f('ix_teams_external_id'), 'teams', ['external_id'], unique=False)
+    # Create index if not exists (idempotent for PostgreSQL)
+    conn = op.get_bind()
+    result = conn.execute(sa.text("SELECT 1 FROM pg_indexes WHERE indexname = 'ix_teams_external_id'")).fetchone()
+    if not result:
+        op.create_index(op.f('ix_teams_external_id'), 'teams', ['external_id'], unique=True)
 
     op.create_table(
         'competitions',
