@@ -21,9 +21,13 @@ class DatabaseConfig:
         db_config = config.get("database", {})
 
         self.url = os.getenv("DATABASE_URL")
-        
+
         if not self.url:
-            raise Exception("DATABASE_URL is not set in environment variables. Railway deployment requires DATABASE_URL.")
+            raise Exception("DATABASE_URL is not set in environment variables.")
+
+        # Fix for SQLAlchemy 2.0+ which requires postgresql:// not postgres://
+        if self.url.startswith("postgres://"):
+            self.url = self.url.replace("postgres://", "postgresql://", 1)
 
         self.pool_size = db_config.get("pool_size", 5)
         self.max_overflow = db_config.get("max_overflow", 10)
