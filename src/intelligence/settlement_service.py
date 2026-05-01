@@ -335,16 +335,16 @@ class AutoSettlementService:
         Args:
             hours_before_check: Hours before match start to check for settlement
         """
-        from src.data.database import Fixture, PredictionRecord
+        from src.data.database import SportEvent, PredictionRecord
         
         cutoff = datetime.utcnow() - timedelta(hours=hours_before_check)
         
         pending = self.db.query(PredictionRecord).filter(
             PredictionRecord.settled_at.is_(None),
             PredictionRecord.is_accepted == True
-        ).join(Fixture).filter(
-            Fixture.utc_date < cutoff,
-            Fixture.status == "FINISHED"
+        ).join(SportEvent, PredictionRecord.fixture_id == SportEvent.id).filter(
+            SportEvent.start_time < cutoff,
+            SportEvent.status == "FINISHED"
         ).all()
         
         return [self._record_to_dict(r) for r in pending]

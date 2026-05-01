@@ -305,11 +305,11 @@ class OddsData(Base):
 
 
 class PredictionRecord(Base):
-    """Extended prediction record with CLV tracking"""
+    """Extended prediction record with CLV tracking - references sport_events"""
     __tablename__ = "prediction_records"
 
     id = Column(Integer, primary_key=True)
-    fixture_id = Column(Integer, ForeignKey("fixtures.id"), nullable=False, index=True)
+    fixture_id = Column(Integer, ForeignKey("sport_events.id"), nullable=False, index=True)
     model_version_id = Column(Integer, ForeignKey("model_versions.id"), index=True)
 
     # Prediction details

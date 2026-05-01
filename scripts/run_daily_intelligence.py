@@ -4,7 +4,7 @@ Unified Daily Intelligence Runner
 Uses:
 - UnifiedOddsEngine (tiered priority: SportsGameOdds > OddsAPI > OddsPortal)
 - BaselinePredictionEngine (simple math models for probability)
-- No simulation in production
+- Database-only storage (no JSON files)
 """
 
 import sys
@@ -13,17 +13,24 @@ _root = Path(r"C:\Users\Strategic Shelter\.antigravity\AI\PredUp")
 sys.path.insert(0, str(_root))
 
 import logging
-from datetime import datetime
-from typing import Dict, List
+from datetime import datetime, date
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
-import json
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session
 
 load_dotenv(_root / ".env")
 logger = logging.getLogger(__name__)
 
+# Database setup for standalone script
+from src.data.database import (
+    PredictionRecord, SportEvent, SportOdds, DailyRun, Base
+)
+from src.data.connection import DatabaseManager
+
 
 class UnifiedIntelligenceEngine:
-    """Unified Engine with tiered odds + baseline models"""
+    """Unified Engine with tiered odds + baseline models - DB only storage"""
     
     def __init__(self):
         self.results = {
@@ -35,9 +42,11 @@ class UnifiedIntelligenceEngine:
         self.total_fixtures = 0
         self.total_predictions = 0
         self.total_skipped = 0
+        self.db_session = None
+        self.daily_run = None
     
     def run(self, sports: List[str] = None):
-        """Run unified intelligence across sports"""
+        """Run unified intelligence across sports - DB only"""
         
         if sports is None:
             sports = ["football", "mlb", "nba"]
@@ -47,32 +56,60 @@ class UnifiedIntelligenceEngine:
         print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M')}")
         print("=" * 70)
         
-        # Initialize engines
-        from src.data.unified_odds_engine import get_odds_engine
-        from src.models.baseline_models import get_baseline_engine
+        # Initialize database
+        db_manager = DatabaseManager.get_instance()
+        self.db_session = db_manager.get_session()
         
-        self.odds_engine = get_odds_engine()
-        self.baseline = get_baseline_engine()
+        # Create daily run record
+        self.daily_run = DailyRun(
+            run_date=date.today(),
+            status="RUNNING",
+            started_at=datetime.utcnow()
+        )
+        self.db_session.add(self.daily_run)
+        self.db_session.commit()
         
-        for sport in sports:
-            print(f"\n[{sport.upper()}]")
-            self._process_sport(sport)
-        
-        # Close engines
-        self.odds_engine.close()
-        
-        # Print summary
-        self._print_summary()
-        
-        # Save predictions
-        self._save()
-        
-        print("\n" + self.odds_engine.get_daily_report())
+        try:
+            # Initialize engines
+            from src.data.unified_odds_engine import get_odds_engine
+            from src.models.baseline_models import get_baseline_engine
+            
+            self.odds_engine = get_odds_engine()
+            self.baseline = get_baseline_engine()
+            
+            for sport in sports:
+                print(f"\n[{sport.upper()}]")
+                self._process_sport(sport)
+            
+            # Close engines
+            self.odds_engine.close()
+            
+            # Update daily run record
+            self.daily_run.status = "COMPLETED"
+            self.daily_run.completed_at = datetime.utcnow()
+            self.daily_run.fixtures_fetched = self.total_fixtures
+            self.daily_run.predictions_generated = self.total_predictions
+            self.db_session.commit()
+            
+            # Print summary
+            self._print_summary()
+            
+            print("\n" + self.odds_engine.get_daily_report())
+            
+        except Exception as e:
+            logger.error(f"Pipeline failed: {e}")
+            self.daily_run.status = "FAILED"
+            self.daily_run.error_message = str(e)[:500]
+            self.daily_run.completed_at = datetime.utcnow()
+            self.db_session.commit()
+            raise
+        finally:
+            self.db_session.close()
         
         return self.results
     
     def _process_sport(self, sport: str):
-        """Process fixtures for a single sport"""
+        """Process fixtures for a single sport - save to DB"""
         
         # Get fixtures from appropriate adapter
         fixtures = self._get_fixtures(sport)
@@ -93,6 +130,9 @@ class UnifiedIntelligenceEngine:
                 
                 if not home or not away:
                     continue
+                
+                # Ensure fixture exists in SportEvent table
+                sport_event = self._get_or_create_sport_event(fixture, sport)
                 
                 # Get baseline probability
                 baseline_prob = self.baseline.predict(sport, home, away)
@@ -120,36 +160,59 @@ class UnifiedIntelligenceEngine:
                 # Devig the market
                 total_implied = implied_home + implied_away
                 devig_home = implied_home / total_implied
+                devig_away = implied_away / total_implied
                 
-                # Calculate edge
+                # Calculate edge and EV
                 edge = baseline_prob - devig_home
                 ev = baseline_prob * (home_odds - 1) - (1 - baseline_prob)
                 
                 # Decision
                 decision = "no_bet"
+                bet_on_home = None
                 if baseline_prob > 0.5 and ev > 0.03:
                     decision = "bet_home"
+                    bet_on_home = True
                 elif baseline_prob < 0.5 and ev > 0.03:
                     decision = "bet_away"
+                    bet_on_home = False
+                
+                # Save odds to SportOdds table
+                self._save_odds_to_db(sport_event.id, sport, odds_result)
                 
                 if decision != "no_bet":
                     self.total_predictions += 1
+                    
+                    # Save prediction to PredictionRecord table
+                    self._save_prediction_to_db(
+                        sport_event=sport_event,
+                        sport=sport,
+                        baseline_prob=baseline_prob,
+                        bet_on_home=bet_on_home,
+                        home_odds=home_odds,
+                        away_odds=away_odds,
+                        devig_home=devig_home,
+                        devig_away=devig_away,
+                        edge=edge,
+                        ev=ev,
+                        odds_result=odds_result
+                    )
+                    
                     prediction = {
                         "sport": sport,
                         "fixture": f"{home} vs {away}",
                         "home_team": home,
                         "away_team": away,
-                        "bet_on": "home" if decision == "bet_home" else "away",
+                        "bet_on": "home" if bet_on_home else "away",
                         "baseline_prob": baseline_prob,
-                        "odds": home_odds if decision == "bet_home" else away_odds,
-                        "implied_prob": devig_home if decision == "bet_home" else (1-devig_home),
+                        "odds": home_odds if bet_on_home else away_odds,
+                        "implied_prob": devig_home if bet_on_home else devig_away,
                         "edge": edge,
                         "ev": ev,
                         "ev_pct": ev * 100,
                         "confidence": "medium",
                         "odds_source": odds_result.get("source", "unknown"),
                         "start_time": fixture.get("start_time", ""),
-                        "league": sport.upper()
+                        "league": fixture.get("league", sport.upper())
                     }
                     self.results[sport]["predictions"].append(prediction)
                     print(f"  BET: {home} vs {away} | Prob: {baseline_prob:.1%} | "
@@ -159,6 +222,130 @@ class UnifiedIntelligenceEngine:
                 logger.error(f"Error processing {sport} fixture: {e}")
         
         print(f"  Predictions: {len(self.results[sport]['predictions'])}")
+    
+    def _get_or_create_sport_event(self, fixture: dict, sport: str) -> SportEvent:
+        """Get or create SportEvent record"""
+        external_id = str(fixture.get("fixture_id", ""))
+        
+        # Check if exists
+        event = self.db_session.query(SportEvent).filter(
+            SportEvent.external_event_id == external_id,
+            SportEvent.sport == sport
+        ).first()
+        
+        if event:
+            # Update if needed
+            event.home_team_name = fixture.get("home_team", event.home_team_name)
+            event.away_team_name = fixture.get("away_team", event.away_team_name)
+            event.start_time = fixture.get("start_time", event.start_time)
+            event.league = fixture.get("league", event.league)
+            event.status = fixture.get("status", event.status)
+            self.db_session.commit()
+            return event
+        
+        # Create new
+        event = SportEvent(
+            sport=sport,
+            league=fixture.get("league", sport.upper()),
+            external_event_id=external_id,
+            home_team_name=fixture.get("home_team", ""),
+            away_team_name=fixture.get("away_team", ""),
+            start_time=fixture.get("start_time"),
+            status=fixture.get("status", "SCHEDULED")
+        )
+        self.db_session.add(event)
+        self.db_session.commit()
+        return event
+    
+    def _save_odds_to_db(self, sport_event_id: int, sport: str, odds_result: dict):
+        """Save odds to SportOdds table"""
+        # Check if odds already exist for this event and bookmaker
+        existing = self.db_session.query(SportOdds).filter(
+            SportOdds.sport_event_id == sport_event_id,
+            SportOdds.bookmaker == odds_result.get("source", "unknown")
+        ).first()
+        
+        if existing:
+            # Update existing
+            existing.odds_decimal = odds_result.get("home_odds")
+            existing.implied_probability = 1 / odds_result.get("home_odds", 2.0) if odds_result.get("home_odds") else None
+            existing.timestamp = datetime.utcnow()
+            self.db_session.commit()
+            return
+        
+        # Create new odds record for home
+        odds = SportOdds(
+            sport_event_id=sport_event_id,
+            sport=sport,
+            market="h2h",
+            bookmaker=odds_result.get("source", "unknown"),
+            selection_name="home",
+            odds_decimal=odds_result.get("home_odds"),
+            implied_probability=1 / odds_result.get("home_odds", 2.0) if odds_result.get("home_odds") else None,
+            timestamp=datetime.utcnow()
+        )
+        self.db_session.add(odds)
+        
+        # Create away odds record
+        away_odds = SportOdds(
+            sport_event_id=sport_event_id,
+            sport=sport,
+            market="h2h",
+            bookmaker=odds_result.get("source", "unknown"),
+            selection_name="away",
+            odds_decimal=odds_result.get("away_odds"),
+            implied_probability=1 / odds_result.get("away_odds", 2.0) if odds_result.get("away_odds") else None,
+            timestamp=datetime.utcnow()
+        )
+        self.db_session.add(away_odds)
+        self.db_session.commit()
+    
+    def _save_prediction_to_db(
+        self,
+        sport_event: SportEvent,
+        sport: str,
+        baseline_prob: float,
+        bet_on_home: bool,
+        home_odds: float,
+        away_odds: float,
+        devig_home: float,
+        devig_away: float,
+        edge: float,
+        ev: float,
+        odds_result: dict
+    ):
+        """Save prediction to PredictionRecord table"""
+        # Check if prediction already exists
+        existing = self.db_session.query(PredictionRecord).filter(
+            PredictionRecord.fixture_id == sport_event.id,
+            PredictionRecord.prediction_type == "home_win" if bet_on_home else "away_win"
+        ).first()
+        
+        if existing:
+            print(f"    Prediction already exists for {sport_event.home_team_name} vs {sport_event.away_team_name}")
+            return
+        
+        # Determine predicted odds and implied prob
+        predicted_odds = home_odds if bet_on_home else away_odds
+        implied_prob = devig_home if bet_on_home else devig_away
+        clv = baseline_prob - implied_prob
+        
+        prediction = PredictionRecord(
+            fixture_id=sport_event.id,
+            predicted_probability=baseline_prob,
+            predicted_odds=predicted_odds,
+            prediction_type="home_win" if bet_on_home else "away_win",
+            market_odds_at_prediction=predicted_odds,
+            market_bookmaker=odds_result.get("source", "unknown"),
+            implied_probability=implied_prob,
+            clv=clv,
+            clv_percentage=clv * 100,
+            edge_score=edge,
+            is_accepted=True,
+            predicted_at=datetime.utcnow()
+        )
+        self.db_session.add(prediction)
+        self.db_session.commit()
     
     def _get_fixtures(self, sport: str) -> List[Dict]:
         """Get fixtures for sport"""
@@ -273,7 +460,7 @@ class UnifiedIntelligenceEngine:
             print("  No betting opportunities found")
             return
         
-        all_preds.sort(key=lambda x: x.get("ev_pct", 0), reverse=True)
+        all_preds.sort(key=lambda x: x.get("ev_pct",0), reverse=True)
         
         for i, p in enumerate(all_preds[:10], 1):
             sport = p.get("_sport", "").upper()
@@ -286,6 +473,11 @@ class UnifiedIntelligenceEngine:
             
             print(f"{i:2}. [{sport:6}] {home} vs {away}")
             print(f"        Bet: {bet:4} | Prob: {prob:.1%} | Odds: {odds:.2f} | EV: {ev:+.1f}%")
+    
+    def _save(self):
+        """DEPRECATED - Now using DB-only storage"""
+        print("\n[DEPRECATED] JSON storage removed - using database only")
+        pass
     
     def _save(self):
         """Save predictions to JSON and Database"""

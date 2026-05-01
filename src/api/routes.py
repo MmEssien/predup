@@ -13,7 +13,7 @@ from sqlalchemy import and_, desc, text
 from sqlalchemy.orm import Session
 
 from src.data.connection import DatabaseManager, get_db_context
-from src.data.database import Fixture, Prediction, Competition, OddsData, DailyRun
+from src.data.database import Fixture, Prediction, PredictionRecord, SportEvent, Competition, OddsData, DailyRun
 from src.data.repositories import FixtureRepository, PredictionRepository
 from src.features.repository import FeatureRepository
 from src.models.trainer import ModelTrainer
@@ -362,55 +362,82 @@ async def get_live_predictions(
     confidence: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Returns live predictions for all supported sports"""
-    all_results = []
-    supported_sports = ["football", "nba", "mlb"]
+    """Returns live predictions from database (PredictionRecord + SportEvent)"""
+    from src.data.database import PredictionRecord, SportEvent, SportOdds
     
-    sports_to_query = supported_sports if not sport else [sport]
+    # Query predictions from DB
+    query = db.query(PredictionRecord).filter(
+        PredictionRecord.is_accepted == True,
+        PredictionRecord.settled_at.is_(None)  # Only open predictions
+    )
     
-    for sp in sports_to_query:
-        fixtures = fetch_sport_fixtures(sp)
+    results = []
+    for pred in query.all():
+        # Get the sport event
+        event = db.query(SportEvent).filter(SportEvent.id == pred.sport_event_id).first()
+        if not event:
+            continue
         
-        for f in fixtures:
-            home = f.get("home_team", "TBD")
-            away = f.get("away_team", "TBD")
-            
-            team_hash = (hash(home + away) % 40) + 50
-            prob = team_hash / 100
-            home_odds = round(1 / prob, 2)
-            away_odds = round(1 / (1 - prob), 2)
-            implied_prob = round(1 / home_odds, 2)
-            ev_pct = round((prob - implied_prob) * 100, 2)
-            conf = "high" if prob > 0.68 else ("medium" if prob > 0.58 else "low")
-            
-            match_date = f.get("match_date", "TBD")
-            
-            all_results.append({
-                "fixture_id": f.get("fixture_id"),
-                "sport": sp,
-                "league": f.get("league"),
-                "home_team": home,
-                "away_team": away,
-                "start_time": f.get("start_time"),
-                "match_date": match_date,
-                "match_time": f.get("match_time", "TBD"),
-                "status": f.get("status"),
-                "home_odds": home_odds,
-                "away_odds": away_odds,
-                "model_probability": round(prob, 2),
-                "implied_prob": implied_prob,
-                "ev_percent": ev_pct,
-                "kelly_percent": round(max(0, ev_pct * 0.2), 2),
-                "recommended_side": "home" if prob > 0.5 else "away",
-                "confidence_score": conf,
-                "odds_source": "model",
-                "predicted_value": "home_win" if prob > 0.5 else "away_win",
-                "probability": round(prob, 2),
-                "confidence": conf,
-            })
+        # Filter by sport if requested
+        if sport and event.sport != sport:
+            continue
+        
+        # Get odds from SportOdds
+        odds = db.query(SportOdds).filter(
+            SportOdds.sport_event_id == event.id
+        ).first()
+        
+        home_odds = odds.odds_decimal if odds and odds.selection_name == "home" else 2.0
+        away_odds = 2.0
+        if odds:
+            away = db.query(SportOdds).filter(
+                SportOdds.sport_event_id == event.id,
+                SportOdds.selection_name == "away"
+            ).first()
+            if away:
+                away_odds = away.odds_decimal
+        
+        # Calculate EV
+        ev_pct = pred.clv_percentage if pred.clv_percentage else 0.0
+        if ev_pct is None:
+            ev_pct = (pred.predicted_probability - (1 / home_odds)) * 100 if home_odds else 0
+        
+        confidence_score = "high" if pred.predicted_probability > 0.68 else ("medium" if pred.predicted_probability > 0.58 else "low")
+        
+        # Format date
+        match_date = "TBD"
+        match_time = "TBD"
+        if event.start_time:
+            match_date = format_date_only(event.start_time.isoformat())
+            match_time = format_datetime(event.start_time.isoformat())[1]
+        
+        result = {
+            "fixture_id": event.external_event_id,
+            "sport": event.sport,
+            "league": event.league,
+            "home_team": event.home_team_name or "TBD",
+            "away_team": event.away_team_name or "TBD",
+            "start_time": event.start_time.isoformat() if event.start_time else None,
+            "match_date": match_date,
+            "match_time": match_time,
+            "status": event.status,
+            "home_odds": home_odds,
+            "away_odds": away_odds,
+            "model_probability": round(pred.predicted_probability, 2),
+            "implied_prob": pred.implied_probability or (1 / home_odds if home_odds else 0.5),
+            "ev_percent": round(ev_pct, 2),
+            "kelly_percent": round(max(0, ev_pct * 0.2), 2),
+            "recommended_side": pred.prediction_type.replace("_win", "") if pred.prediction_type else "home",
+            "confidence_score": confidence_score,
+            "odds_source": pred.market_bookmaker or "unknown",
+            "predicted_value": pred.prediction_type or "home_win",
+            "probability": round(pred.predicted_probability, 2),
+            "confidence": confidence_score,
+        }
+        
+        results.append(result)
     
-    results = all_results
-    
+    # Apply filters
     if min_ev is not None:
         results = [r for r in results if r.get("ev_percent", 0) >= min_ev]
     if sport:
@@ -418,16 +445,14 @@ async def get_live_predictions(
     if confidence:
         results = [r for r in results if r.get("confidence_score") == confidence]
     
+    # Sort by date
     def sort_key(x):
         date = x.get("match_date", "")
-        start = x.get("start_time", "")
-        if date and "Today" in date:
-            return (0, start)
-        elif date and "Tomorrow" in date:
-            return (1, start)
-        elif date and "Yesterday" in date:
-            return (3, start)
-        return (2, start)
+        if "Today" in date:
+            return (0, x.get("match_time", ""))
+        elif "Tomorrow" in date:
+            return (1, x.get("match_time", ""))
+        return (2, x.get("match_time", ""))
     
     results.sort(key=sort_key)
     
@@ -445,102 +470,54 @@ async def get_prediction_history(
     league: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Get historical settled predictions"""
-    query = db.query(Prediction).filter(Prediction.settled_at.isnot(None))
+    """Get historical settled predictions from PredictionRecord + SportEvent"""
+    query = db.query(PredictionRecord).filter(PredictionRecord.settled_at.isnot(None))
 
     if start_date:
         try:
-            query = query.filter(Prediction.predicted_at >= datetime.fromisoformat(start_date))
+            query = query.filter(PredictionRecord.predicted_at >= datetime.fromisoformat(start_date))
         except ValueError:
             pass
     if end_date:
         try:
-            query = query.filter(Prediction.predicted_at <= datetime.fromisoformat(end_date))
+            query = query.filter(PredictionRecord.predicted_at <= datetime.fromisoformat(end_date))
         except ValueError:
             pass
 
-    preds = query.order_by(desc(Prediction.settled_at)).limit(200).all()
+    # Join with SportEvent if sport/league filters
+    if sport or league:
+        query = query.join(SportEvent, PredictionRecord.fixture_id == SportEvent.id)
+        if sport:
+            query = query.filter(SportEvent.sport == sport)
+        if league:
+            query = query.filter(SportEvent.league == league)
+
+    preds = query.order_by(desc(PredictionRecord.settled_at)).limit(200).all()
     results = []
     for p in preds:
-        fixture = db.query(Fixture).filter(Fixture.id == p.fixture_id).first()
-        home_name = fixture.home_team.name if fixture and fixture.home_team else "?"
-        away_name = fixture.away_team.name if fixture and fixture.away_team else "?"
+        event = db.query(SportEvent).filter(SportEvent.id == p.fixture_id).first()
+        home_name = event.home_team_name if event else "?"
+        away_name = event.away_team_name if event else "?"
+        sport_name = event.sport if event else "unknown"
+        league_name = event.league if event else "unknown"
+        
         results.append({
             "fixture_id": p.fixture_id,
+            "sport": sport_name,
+            "league": league_name,
             "home_team": home_name,
             "away_team": away_name,
-            "start_time": fixture.utc_date.isoformat() if fixture and fixture.utc_date else None,
-            "probability": p.probability,
-            "predicted_value": p.predicted_value,
-            "actual_value": p.actual_value,
+            "start_time": event.start_time.isoformat() if event and event.start_time else None,
+            "probability": p.predicted_probability,
+            "predicted_value": p.prediction_type,
+            "actual_value": p.actual_outcome,
             "is_correct": p.is_correct,
             "settled_at": p.settled_at.isoformat() if p.settled_at else None,
             "result": "win" if p.is_correct else "loss",
-            "profit": 0.0,
-            "clv": 0.0,
-            "confidence_score": "medium",
+            "profit": p.profit or 0.0,
+            "clv": p.clv or 0.0,
+            "confidence_score": "high" if p.predicted_probability and p.predicted_probability > 0.68 else ("medium" if p.predicted_probability and p.predicted_probability > 0.58 else "low"),
         })
-
-    # Fallback: return sample historical data if DB is empty
-    if not results:
-        from datetime import timedelta
-        now = datetime.utcnow()
-        results = [
-            {
-                "fixture_id": 1,
-                "fixture": {
-                    "id": 1,
-                    "external_id": 1,
-                    "date": (now - timedelta(days=1)).isoformat(),
-                    "home_team": "Bayern Munich",
-                    "away_team": "Dortmund",
-                    "status": "FINISHED",
-                    "home_score": 3,
-                    "away_score": 1,
-                },
-                "sport": "football",
-                "league": "BL1",
-                "predicted_value": "Over 2.5",
-                "probability": 0.68,
-                "confidence": "high",
-                "is_accepted": True,
-                "ev": 8.5,
-                "kelly_pct": 3.2,
-                "odds_taken": 1.85,
-                "closing_odds": 1.90,
-                "result": "win",
-                "profit": 42.50,
-                "clv": 5.0,
-                "clv_percent": 2.7,
-            },
-            {
-                "fixture_id": 2,
-                "fixture": {
-                    "id": 2,
-                    "external_id": 2,
-                    "date": (now - timedelta(days=2)).isoformat(),
-                    "home_team": "Manchester City",
-                    "away_team": "Arsenal",
-                    "status": "FINISHED",
-                    "home_score": 1,
-                    "away_score": 1,
-                },
-                "sport": "football",
-                "league": "PL",
-                "predicted_value": "BTTS Yes",
-                "probability": 0.58,
-                "confidence": "medium",
-                "is_accepted": True,
-                "ev": 4.2,
-                "kelly_pct": 1.8,
-                "odds_taken": 1.75,
-                "closing_odds": 1.72,
-                "result": "win",
-                "profit": 37.50,
-                "clv": -1.7,
-                "clv_percent": -1.0,
-            },
-        ]
 
     return results
 
@@ -969,56 +946,60 @@ async def evaluate_prediction(
 
 @router.get("/dashboard")
 async def get_dashboard(db: Session = Depends(get_db)):
-    """Get dashboard statistics - computed from all sports fixtures"""
-    from datetime import datetime
-    
+    """Get dashboard statistics from database"""
     try:
-        all_fixtures = []
-        sports_active = []
-        supported_sports = ["football", "nba", "mlb"]
-        
-        for sport in supported_sports:
-            fixtures = fetch_sport_fixtures(sport)
-            if fixtures:
-                sports_active.append(sport)
-                all_fixtures.extend(fixtures)
-        
-        total_fixtures = len(all_fixtures)
-        
-        today_fixtures = [f for f in all_fixtures if f.get("match_date") == "Today"]
-        positive_ev = 0
-        open_preds = 0
-        
-        for f in all_fixtures:
-            home = f.get("home_team", "")
-            away = f.get("away_team", "")
-            if home and away:
-                team_hash = (hash(home + away) % 40) + 50
-                prob = team_hash / 100
-                home_odds = round(1 / prob, 2)
-                implied_prob = round(1 / home_odds, 2)
-                ev_pct = round((prob - implied_prob) * 100, 2)
-                if ev_pct > 5:
-                    positive_ev += 1
-                if f.get("status") in ["SCHEDULED", "TIMED"]:
-                    open_preds += 1
-        
-        top_ev = 0
-        for f in all_fixtures:
-            home = f.get("home_team", "")
-            away = f.get("away_team", "")
-            if home and away:
-                team_hash = (hash(home + away) % 40) + 50
-                prob = team_hash / 100
-                home_odds = round(1 / prob, 2)
-                implied_prob = round(1 / home_odds, 2)
-                ev_pct = round((prob - implied_prob) * 100, 2)
-                if ev_pct > top_ev:
-                    top_ev = ev_pct
-        
-        from src.data.database import Prediction
         from sqlalchemy import func
-        yesterday_roi = 0.0
+        from datetime import datetime, timedelta
+        
+        # Get upcoming fixtures from SportEvent
+        now = datetime.utcnow()
+        tomorrow = now + timedelta(days=1)
+        
+        upcoming = db.query(SportEvent).filter(
+            SportEvent.start_time > now,
+            SportEvent.status == "SCHEDULED"
+        ).all()
+        
+        total_fixtures = len(upcoming)
+        
+        # Sports active (distinct sports with upcoming events)
+        sports_active = list(set(e.sport for e in upcoming if e.sport))
+        
+        # Today's fixtures (start_time is today in Lagos time)
+        from src.utils.helpers import get_today_range_utc
+        start_utc, end_utc = get_today_range_utc()
+        today_fixtures = db.query(SportEvent).filter(
+            SportEvent.start_time >= start_utc,
+            SportEvent.start_time <= end_utc
+        ).all()
+        
+        # Open predictions (accepted, not settled)
+        open_preds_query = db.query(PredictionRecord).filter(
+            PredictionRecord.is_accepted == True,
+            PredictionRecord.settled_at.is_(None)
+        )
+        open_preds = open_preds_query.count()
+        
+        # Positive EV opportunities (CLV > 0)
+        positive_ev = open_preds_query.filter(
+            PredictionRecord.clv > 0
+        ).count() if open_preds > 0 else 0
+        
+        # Projected edge today (max CLV from today's predictions)
+        today_preds = open_preds_query.join(
+            SportEvent, PredictionRecord.fixture_id == SportEvent.id
+        ).filter(
+            SportEvent.start_time >= start_utc,
+            SportEvent.start_time <= end_utc
+        ).all()
+        
+        top_ev = max((p.clv_percentage or 0 for p in today_preds), default=0.0)
+        
+        # Pipeline status from DailyRun
+        from src.data.database import DailyRun
+        latest_run = db.query(DailyRun).order_by(DailyRun.run_date.desc()).first()
+        pipeline_status = latest_run.status if latest_run else "NOT_RUN"
+        last_batch_run_time = latest_run.completed_at.isoformat() if latest_run and latest_run.completed_at else None
         
         return {
             "total_fixtures_today": total_fixtures,
@@ -1026,11 +1007,26 @@ async def get_dashboard(db: Session = Depends(get_db)):
             "positive_ev_opportunities": positive_ev,
             "sports_active": sports_active,
             "projected_edge_today": round(top_ev, 2),
-            "yesterday_roi": round(yesterday_roi, 2),
+            "yesterday_roi": 0.0,  # TODO: calculate from settled predictions
             "open_predictions": open_preds,
             "last_updated": datetime.utcnow().isoformat(),
-            "pipeline_status": "READY",
+            "pipeline_status": pipeline_status,
+            "last_batch_run_time": last_batch_run_time,
             "next_run": None
+        }
+    except Exception as e:
+        logger.error(f"DASHBOARD ERROR: {str(e)}")
+        return {
+            "total_fixtures_today": 0,
+            "today_fixture_count": 0,
+            "positive_ev_opportunities": 0,
+            "sports_active": [],
+            "projected_edge_today": 0.0,
+            "yesterday_roi": 0.0,
+            "open_predictions": 0,
+            "last_updated": datetime.utcnow().isoformat(),
+            "pipeline_status": "ERROR",
+            "error": str(e)
         }
     except Exception as e:
         logger.error(f"DASHBOARD ERROR: {str(e)}")
@@ -1051,29 +1047,58 @@ async def get_dashboard(db: Session = Depends(get_db)):
 
 @router.get("/performance")
 async def get_performance_metrics(db: Session = Depends(get_db)):
-    """Get performance metrics for charts from DB"""
-    # Count settled predictions
-    total_bets = db.query(Prediction).filter(Prediction.settled_at.isnot(None)).count()
+    """Get performance metrics from PredictionRecord"""
+    from sqlalchemy import func
+    
+    # Get settled predictions with sport info
+    settled = db.query(PredictionRecord, SportEvent).join(
+        SportEvent, PredictionRecord.fixture_id == SportEvent.id
+    ).filter(
+        PredictionRecord.settled_at.isnot(None),
+        PredictionRecord.is_accepted == True
+    ).all()
+    
+    total_bets = len(settled)
     if total_bets == 0:
         return {
-            "total_bets": 0, "win_rate": 0, "total_roi": 0, "avg_clv": 0,
+            "totalBets": 0, "win_rate": 0, "total_roi": 0, "avg_clv": 0,
             "roi_over_time": [], "win_rate_by_sport": [], "profit_by_month": []
         }
     
-    wins = db.query(Prediction).filter(Prediction.is_correct.is_(True)).count()
+    wins = sum(1 for (p, e) in settled if p.is_correct)
     win_rate = (wins / total_bets) * 100
+    total_profit = sum(p.profit or 0 for (p, e) in settled)
+    total_stakes = total_bets * 100  # Assume 100 units per bet for ROI calc
+    total_roi = (total_profit / total_stakes) * 100 if total_stakes > 0 else 0
+    avg_clv = sum(p.clv or 0 for (p, e) in settled) / total_bets
     
-    # Static — will be replaced by settlement service when predictions exist
+    # Win rate by sport
+    sport_stats = {}
+    for (p, e) in settled:
+        sport = e.sport or "unknown"
+        if sport not in sport_stats:
+            sport_stats[sport] = {"bets": 0, "wins": 0}
+        sport_stats[sport]["bets"] += 1
+        if p.is_correct:
+            sport_stats[sport]["wins"] += 1
+    
+    win_rate_by_sport = [
+        {
+            "sport": sport,
+            "win_rate": round((stats["wins"] / stats["bets"]) * 100, 1),
+            "bets": stats["bets"]
+        }
+        for sport, stats in sport_stats.items()
+    ]
+    
     return {
-        "total_bets": total_bets,
+        "totalBets": total_bets,
         "win_rate": round(win_rate, 1),
-        "total_roi": 0.0,
-        "avg_clv": 0.0,
-        "roi_over_time": [],
-        "win_rate_by_sport": [
-            {"sport": "Football", "win_rate": round(win_rate, 1), "bets": total_bets},
-        ],
-        "profit_by_month": [],
+        "total_roi": round(total_roi, 2),
+        "avg_clv": round(avg_clv, 4),
+        "roi_over_time": [],  # Could be calculated from settled_at dates
+        "win_rate_by_sport": win_rate_by_sport,
+        "profit_by_month": [],  # Could be calculated from settled_at
     }
 
 
