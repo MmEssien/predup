@@ -223,12 +223,13 @@ class OddsAPIAdapter:
         
         # Make API request
         try:
-            logger.info(f"[ODDSAPI DEBUG] Fetching odds for {sport_key}: home={home_team}, away={away_team}")
-            logger.info(f"[ODDSAPI DEBUG] API key set: {bool(self.api_key)}, key length: {len(self.api_key) if self.api_key else 0}")
-            logger.info(f"[ODDSAPI DEBUG] Quota can_request: {self.quota.can_request()}")
+            print(f"[ODDSAPI DEBUG] Fetching odds for {sport_key}: home={home_team}, away={away_team}")
+            print(f"[ODDSAPI DEBUG] API key set: {bool(self.api_key)}, key length: {len(self.api_key) if self.api_key else 0}")
+            print(f"[ODDSAPI DEBUG] Quota can_request: {self.quota.can_request()}")
+            print(f"[ODDSAPI DEBUG] ODDS_API_KEY env: {__import__('os').getenv('ODDS_API_KEY')[:10] if __import__('os').getenv('ODDS_API_KEY') else None}")
             
             if not self.api_key:
-                logger.error("[ODDSAPI DEBUG] API key is empty!")
+                print("[ODDSAPI DEBUG] API key is empty!")
                 return None
             
             response = self.client.get(
