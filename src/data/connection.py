@@ -64,11 +64,13 @@ class DatabaseManager:
             autocommit=False,
         )
 
-        event.listen(
-            self.engine,
-            "connect",
-            self._set_search_path
-        )
+        # Only set search_path for PostgreSQL
+        if 'postgresql' in self.config.url:
+            event.listen(
+                self.engine,
+                "connect",
+                self._set_search_path
+            )
 
     @staticmethod
     def _set_search_path(dbapi_connection, connection_record):

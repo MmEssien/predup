@@ -60,13 +60,25 @@ class UnifiedIntelligenceEngine:
         db_manager = DatabaseManager.get_instance()
         self.db_session = db_manager.get_session()
         
-        # Create daily run record
-        self.daily_run = DailyRun(
-            run_date=date.today(),
-            status="RUNNING",
-            started_at=datetime.utcnow()
-        )
-        self.db_session.add(self.daily_run)
+        # Get or create daily run record for today
+        existing = self.db_session.query(DailyRun).filter(
+            DailyRun.run_date == date.today()
+        ).first()
+        
+        if existing:
+            self.daily_run = existing
+            self.daily_run.status = "RUNNING"
+            self.daily_run.started_at = datetime.utcnow()
+            self.daily_run.completed_at = None
+            self.daily_run.error_message = None
+        else:
+            self.daily_run = DailyRun(
+                run_date=date.today(),
+                status="RUNNING",
+                started_at=datetime.utcnow()
+            )
+            self.db_session.add(self.daily_run)
+        
         self.db_session.commit()
         
         try:
@@ -125,16 +137,17 @@ class UnifiedIntelligenceEngine:
         # Process each fixture
         for fixture in fixtures:
             try:
-                home = fixture.get("home_team", "")
-                away = fixture.get("away_team", "")
+                # Ensure fixture exists in SportEvent table (this extracts team names)
+                sport_event = self._get_or_create_sport_event(fixture, sport)
+                
+                # Use the extracted team names from the SportEvent
+                home = sport_event.home_team_name or ""
+                away = sport_event.away_team_name or ""
                 
                 if not home or not away:
                     continue
                 
-                # Ensure fixture exists in SportEvent table
-                sport_event = self._get_or_create_sport_event(fixture, sport)
-                
-                # Get baseline probability
+                # Get baseline probability using string team names
                 baseline_prob = self.baseline.predict(sport, home, away)
                 
                 # Get real odds from tiered engine
@@ -220,12 +233,21 @@ class UnifiedIntelligenceEngine:
                 
             except Exception as e:
                 logger.error(f"Error processing {sport} fixture: {e}")
+                self.db_session.rollback()
         
         print(f"  Predictions: {len(self.results[sport]['predictions'])}")
     
     def _get_or_create_sport_event(self, fixture: dict, sport: str) -> SportEvent:
         """Get or create SportEvent record"""
         external_id = str(fixture.get("fixture_id", ""))
+        
+        # Extract team names (handle both strings and dicts from APIs)
+        home_team = fixture.get("home_team", "")
+        away_team = fixture.get("away_team", "")
+        if isinstance(home_team, dict):
+            home_team = home_team.get("name", "")
+        if isinstance(away_team, dict):
+            away_team = away_team.get("name", "")
         
         # Check if exists
         event = self.db_session.query(SportEvent).filter(
@@ -235,21 +257,21 @@ class UnifiedIntelligenceEngine:
         
         if event:
             # Update if needed
-            event.home_team_name = fixture.get("home_team", event.home_team_name)
-            event.away_team_name = fixture.get("away_team", event.away_team_name)
+            event.home_team_name = home_team or event.home_team_name
+            event.away_team_name = away_team or event.away_team_name
             event.start_time = fixture.get("start_time", event.start_time)
             event.league = fixture.get("league", event.league)
             event.status = fixture.get("status", event.status)
             self.db_session.commit()
             return event
         
-        # Create new
+        # Create new (use extracted team names)
         event = SportEvent(
             sport=sport,
             league=fixture.get("league", sport.upper()),
             external_event_id=external_id,
-            home_team_name=fixture.get("home_team", ""),
-            away_team_name=fixture.get("away_team", ""),
+            home_team_name=home_team,
+            away_team_name=away_team,
             start_time=fixture.get("start_time"),
             status=fixture.get("status", "SCHEDULED")
         )

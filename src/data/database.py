@@ -432,7 +432,7 @@ class SportEvent(Base):
     season = Column(Integer)
     game_number = Column(Integer, default=1)
     
-    start_time = Column(DateTime, nullable=False, index=True)
+    start_time = Column(DateTime, index=True)
     end_time = Column(DateTime)
     
     status = Column(String(20), default="SCHEDULED", index=True)
