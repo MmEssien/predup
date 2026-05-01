@@ -19,7 +19,10 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-load_dotenv(_root / ".env")
+# Only load .env if it exists (for local dev; Fly.io uses secrets)
+env_file = _root / ".env"
+if env_file.exists():
+    load_dotenv(str(env_file))
 logger = logging.getLogger(__name__)
 
 # Database setup for standalone script
