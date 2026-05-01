@@ -18,11 +18,15 @@ from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
+import os
 
-# Only load .env if it exists (for local dev; Fly.io uses secrets)
+# Debug: Print environment variables
+print("DEBUG: ODDS_API_KEY set:", bool(os.getenv("ODDS_API_KEY")))
+print("DEBUG: ODDS_API_KEY length:", len(os.getenv("ODDS_API_KEY") or ""))
 env_file = _root / ".env"
 if env_file.exists():
     load_dotenv(str(env_file))
+
 logger = logging.getLogger(__name__)
 
 # Database setup for standalone script
