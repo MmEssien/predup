@@ -95,7 +95,9 @@ class OddsAPIQuotaTracker:
         daily_left = 100 - self.data["daily"]["used"]  # Assume ~100/day max
         monthly_left = MONTHLY_CREDIT_LIMIT - self.data["monthly"]["used"]
         
-        return daily_left > 5 and monthly_left > 5
+        can_request = daily_left > 5 and monthly_left > 5
+        logger.info(f"[ODDSAPI QUOTA] can_request={can_request}, daily_left={daily_left}, monthly_left={monthly_left}")
+        return can_request
     
     def get_daily_credits_left(self) -> int:
         """Get daily credits remaining"""
@@ -221,6 +223,14 @@ class OddsAPIAdapter:
         
         # Make API request
         try:
+            logger.info(f"[ODDSAPI DEBUG] Fetching odds for {sport_key}: home={home_team}, away={away_team}")
+            logger.info(f"[ODDSAPI DEBUG] API key set: {bool(self.api_key)}, key length: {len(self.api_key) if self.api_key else 0}")
+            logger.info(f"[ODDSAPI DEBUG] Quota can_request: {self.quota.can_request()}")
+            
+            if not self.api_key:
+                logger.error("[ODDSAPI DEBUG] API key is empty!")
+                return None
+            
             response = self.client.get(
                 f"{self.base_url}/sports/{sport_key}/odds",
                 params={
