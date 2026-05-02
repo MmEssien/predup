@@ -462,6 +462,45 @@ async def get_live_predictions(
 # ============ Frontend Dashboard Endpoints ============
 
 
+@router.get("/fixtures")
+async def get_fixtures(
+    sport: Optional[str] = None,
+    league: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """Get fixtures from database"""
+    from src.data.database import SportEvent
+    
+    query = db.query(SportEvent)
+    
+    if sport:
+        query = query.filter(SportEvent.sport == sport)
+    if league:
+        query = query.filter(SportEvent.league == league)
+    if status:
+        query = query.filter(SportEvent.status == status)
+    
+    query = query.order_by(SportEvent.start_time.asc()).limit(limit)
+    
+    results = []
+    for event in query.all():
+        results.append({
+            "fixture_id": event.external_event_id,
+            "sport": event.sport,
+            "league": event.league,
+            "home_team": event.home_team_name,
+            "away_team": event.away_team_name,
+            "start_time": event.start_time.isoformat() if event.start_time else None,
+            "status": event.status,
+            "home_score": event.home_score,
+            "away_score": event.away_score,
+        })
+    
+    return {"status": "success", "data": results, "meta": {"count": len(results)}}
+
+
 @router.get("/predictions/history")
 async def get_prediction_history(
     start_date: Optional[str] = None,
