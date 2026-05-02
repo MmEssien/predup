@@ -22,7 +22,15 @@ class CacheManager:
         self._memory_cache = {}
     
     def _get_cache_path(self, key: str) -> Path:
-        safe_key = key.replace("/", "_").replace(":", "_").replace("?", "_")
+        """Get cache file path for a key - safe for Windows"""
+        import re
+        # Replace invalid filename characters
+        safe_key = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '_', key)
+        safe_key = safe_key.replace(" ", "_").replace("{", "").replace("}", "").replace('"', "").replace("'", "")
+        # Limit length
+        if len(safe_key) > 100:
+            import hashlib
+            safe_key = safe_key[:50] + hashlib.md5(safe_key.encode()).hexdigest()[:20]
         return self.cache_dir / f"{safe_key}.json"
     
     def get(self, key: str) -> Optional[Any]:

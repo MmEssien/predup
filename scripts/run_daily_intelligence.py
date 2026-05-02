@@ -452,7 +452,7 @@ class UnifiedIntelligenceEngine:
             return []
     
     def _get_mlb_fixtures(self) -> List[Dict]:
-        """Get MLB fixtures"""
+        """Get MLB fixtures using API-Sports (PRIMARY)"""
         try:
             from src.data.mlb_adapter import MLBAdapter
             from datetime import datetime
@@ -461,46 +461,51 @@ class UnifiedIntelligenceEngine:
             games = adapter.get_fixtures(days_ahead=3)
             adapter.close()
             
-            results = []
-            for g in games:
-                home = g.get("home_team", {})
-                away = g.get("away_team", {})
-                if not isinstance(home, dict) or not isinstance(away, dict):
-                    continue
-                
-                start_time_str = g.get("start_time")
-                if not start_time_str:
-                    continue
-                
-                # Convert string to datetime
-                try:
-                    start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
-                except:
-                    continue
-                
-                results.append({
-                    "home_team": home.get("name", ""),
-                    "away_team": away.get("name", ""),
-                    "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
-                    "start_time": start_time,
-                    "league": "MLB"
-                })
-            return results
+            if not games:
+                print(f"  No MLB fixtures found")
+                return []
+            
+            print(f"  Found {len(games)} MLB fixtures")
+            
+            return [{
+                "home_team": g.get("home_team", {}).get("name", "") if isinstance(g.get("home_team"), dict) else str(g.get("home_team", "")),
+                "away_team": g.get("away_team", {}).get("name", "") if isinstance(g.get("away_team"), dict) else str(g.get("away_team", "")),
+                "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
+                "start_time": g.get("start_time"),
+                "league": "MLB"
+            } for g in games if g.get("home_team")]
         except Exception as e:
             self.api_failures["mlb"] = str(e)
+            print(f"  MLB error: {e}")
             return []
     
     def _get_nba_fixtures(self) -> List[Dict]:
-        """Get NBA fixtures"""
+        """Get NBA fixtures using API-Sports (PRIMARY)"""
         try:
             from src.data.nba_adapter import NBAAdapter
+            from datetime import datetime
             
             adapter = NBAAdapter()
             games = adapter.get_fixtures(days_ahead=3)
             adapter.close()
             
             if not games:
+                print(f"  No NBA fixtures found")
                 return []
+            
+            print(f"  Found {len(games)} NBA fixtures")
+            
+            return [{
+                "home_team": g.get("home_team", {}).get("name", "") if isinstance(g.get("home_team"), dict) else g.get("home_team", ""),
+                "away_team": g.get("away_team", {}).get("name", "") if isinstance(g.get("away_team"), dict) else g.get("away_team", ""),
+                "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
+                "start_time": g.get("start_time"),
+                "league": "NBA"
+            } for g in games if g.get("home_team")]
+        except Exception as e:
+            self.api_failures["nba"] = str(e)
+            print(f"  NBA error: {e}")
+            return []
             
             return [{
                 "home_team": g.get("home_team"),

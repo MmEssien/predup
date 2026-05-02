@@ -27,30 +27,9 @@ class NBAAdapter(BaseSportAdapter):
         self._current_season = get_current_nba_season()
     
     def get_fixtures(self, date: Optional[str] = None, days_ahead: int = 1) -> List[Dict]:
-        """Get upcoming NBA games"""
+        """Get NBA games via API-Sports - returns all games for season"""
         data = self.client.get_games(season=self._current_season)
-        all_games = [self.mapper.map_game(g) for g in data.get("response", [])]
-        
-        if date is None:
-            from datetime import datetime, timedelta
-            end_date = datetime.now() + timedelta(days=days_ahead)
-            start_date = datetime.now()
-        else:
-            from datetime import datetime, timedelta
-            start_date = datetime.strptime(date, "%Y-%m-%d")
-            end_date = start_date + timedelta(days=days_ahead)
-        
-        # Filter by date range
-        results = []
-        for game in all_games:
-            try:
-                game_date = datetime.fromisoformat(game["start_time"].replace("Z", "+00:00"))
-                if start_date <= game_date <= end_date:
-                    results.append(game)
-            except:
-                pass
-        
-        return results
+        return [self.mapper.map_game(g) for g in data.get("response", [])]
     
     def get_todays_games(self) -> List[Dict]:
         """Get today's NBA games - for routes.py compatibility"""

@@ -1,5 +1,6 @@
 """
 MLB Sport Adapter - Implements BaseSportAdapter interface
+Uses API-Sports as PRIMARY (v1.baseball.api-sports.io)
 """
 
 import sys
@@ -9,37 +10,24 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 
-from src.data.mlb_client import MLBStatsClient, MLBDataMapper
+from src.data.mlb_api_sports_client import MLBApiSportsClient, MLBApiSportsMapper
 from src.data.sport_adapter import BaseSportAdapter
 
 
 class MLBAdapter(BaseSportAdapter):
-    """MLB adapter using StatsAPI"""
+    """MLB adapter using API-Sports (PRIMARY)"""
     
     sport_name = "mlb"
     league_name = "MLB"
     
     def __init__(self):
-        self.client = MLBStatsClient()
-        self.mapper = MLBDataMapper()
+        self.client = MLBApiSportsClient()
+        self.mapper = MLBApiSportsMapper()
     
     def get_fixtures(self, date: Optional[str] = None, days_ahead: int = 1) -> List[Dict]:
-        """Get upcoming MLB games"""
-        if date is None:
-            if days_ahead == 1:
-                schedule = self.client.get_todays_games()
-            else:
-                games_data = self.client.get_upcoming_games(days_ahead)
-                return [self.mapper.map_game(g) for g in games_data]
-        else:
-            schedule = self.client.get_schedule(date=date)
-        
-        results = []
-        for date_obj in schedule.get("dates", []):
-            for game in date_obj.get("games", []):
-                results.append(self.mapper.map_game(game))
-        
-        return results
+        """Get MLB games via API-Sports - returns all games for season"""
+        data = self.client.get_games()
+        return [self.mapper.map_game(g) for g in data.get("response", [])]
     
     def get_todays_games(self) -> List[Dict]:
         """Get today's MLB games - for routes.py compatibility"""
@@ -47,76 +35,85 @@ class MLBAdapter(BaseSportAdapter):
     
     def get_live_games(self) -> List[Dict]:
         """Get live MLB games"""
-        schedule = self.client.get_todays_games()
-        
+        data = self.client.get_games()
         results = []
-        for date_obj in schedule.get("dates", []):
-            game = date_obj.get("games", [])
-            for g in game:
-                status = g.get("status", {}).get("abstractGameState")
-                if status == "Live":
-                    results.append(self.mapper.map_game(g))
+        
+        for game in data.get("response", []):
+            status_short = game.get("status", {}).get("short", "")
+            # MLB live statuses: 1=Not Started, 2=In Progress, 3=Final
+            if status_short in ["2", "3", "HT", "OT"]:
+                results.append(self.mapper.map_game(game))
         
         return results
     
     def get_team_stats(self, team_id: int) -> Dict:
         """Get team statistics"""
-        team = self.client.get_team(team_id)
-        if team:
-            return self.mapper.map_team(team)
+        data = self.client.get_team_stats(team_id)
+        if data.get("response"):
+            return self.mapper.map_team_stats(data)
         return {}
     
     def get_odds(self, event_id: str, market: str = "moneyline") -> Dict:
-        """Get betting odds for a game"""
-        # MLB StatsAPI doesn't provide real odds
-        # This would need to be integrated with a betting odds API
-        # For now, return empty - will be implemented with odds API
+        """Get betting odds for a game via API-Sports"""
+        data = self.client.get_odds()
+        
+        for odd in data.get("response", []):
+            if str(odd.get("game", {}).get("id")) == event_id:
+                bookmaker = odd.get("bookmaker", {})
+                
+                # Find moneyline odds
+                ml_odds = {}
+                for bet in bookmaker.get("bets", []):
+                    if bet.get("name") == "Home Team Win":
+                        ml_odds["home"] = bet.get("values", [{}])[0].get("odd")
+                    elif bet.get("name") == "Away Team Win":
+                        ml_odds["away"] = bet.get("values", [{}])[0].get("odd")
+                
+                return {
+                    "sport": self.sport_name,
+                    "event_id": event_id,
+                    "market": market,
+                    "odds": ml_odds,
+                    "bookmaker": bookmaker.get("name"),
+                    "timestamp": odd.get("update")
+                }
+        
         return {
             "sport": self.sport_name,
             "event_id": event_id,
             "market": market,
             "odds": {},
-            "note": "Odds need separate betting API integration"
+            "note": "No odds available for this game"
         }
     
     def get_game_details(self, event_id: str) -> Dict:
         """Get detailed game information"""
         try:
-            game_pk = int(event_id)
-            boxscore = self.client.get_game_boxscore(game_pk)
-            if boxscore:
-                return self.mapper.map_boxscore(boxscore)
+            game_id = int(event_id)
+            data = self.client.get_game_details(game_id)
+            if data.get("response"):
+                return self.mapper.map_game(data["response"][0])
         except Exception:
             pass
         return {}
     
-    def get_probable_pitchers(self, date: str) -> List[Dict]:
-        """Get probable pitchers for games on a date"""
-        schedule = self.client.get_probable_pitchers(date)
-        
-        pitchers = []
-        for date_obj in schedule.get("dates", []):
-            for game in date_obj.get("games", []):
-                home_pitcher = game.get("teams", {}).get("home", {}).get("probablePitcher")
-                away_pitcher = game.get("teams", {}).get("away", {}).get("probablePitcher")
-                
-                pitchers.append({
-                    "game_pk": game.get("gamePk"),
-                    "home_pitcher": home_pitcher,
-                    "away_pitcher": away_pitcher,
-                })
-        
-        return pitchers
-    
-    def get_standings(self) -> Dict:
+    def get_standings(self) -> List[Dict]:
         """Get current standings"""
-        return self.client.get_standings()
+        data = self.client.get_standings()
+        if data.get("response"):
+            return self.mapper.map_standings(data["response"])
+        return []
     
-    def get_leaders(self, categories: List[str] = None) -> Dict:
-        """Get league leaders"""
-        if categories is None:
-            categories = ["homeRuns", "runsBattedIn", "strikeouts"]
-        return self.client.get_leaders(categories)
+    def get_teams(self) -> List[Dict]:
+        """Get all MLB teams"""
+        data = self.client.get_teams()
+        if data.get("response"):
+            return [self.mapper.map_team(t) for t in data["response"]]
+        return []
+    
+    def close(self):
+        """Close the client"""
+        self.client.close()
     
     def close(self):
         """Close the client"""

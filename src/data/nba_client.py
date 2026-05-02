@@ -1,7 +1,7 @@
 """
 NBA API Client using API-Sports
 Base URL: v2.nba.api-sports.io
-API Key: 7f7d0fcbf7fa4d5213acdcf6358d2d95
+API Key: From API_SPORTS_KEY env variable
 """
 
 import os
@@ -12,19 +12,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import json
 import httpx
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 
 def get_current_nba_season() -> int:
-    """Get current NBA season based on today's date"""
-    now = datetime.now()
-    if now.month >= 10:
-        return now.year
-    elif now.month >= 6:
-        return now.year
-    else:
-        return now.year - 1
+    """Get NBA season - free plan supports 2022-2024"""
+    # Free plan only supports 2022-2024 seasons
+    return 2024  # Use 2024 season for free plan
 
 
 class NBADataCache:
@@ -85,7 +83,7 @@ class NBAApiSportsClient:
     }
     
     def __init__(self, api_key: Optional[str] = None):
-        self.api_key = api_key or "7f7d0fcbf7fa4d5213acdcf6358d2d95"
+        self.api_key = api_key or os.getenv("API_SPORTS_KEY") or "fee203af0cddf8fbb26d962335be4362"
         self.timeout = 30
         self.max_retries = 3
         self.retry_delay = 2
@@ -161,21 +159,20 @@ class NBAApiSportsClient:
         
         return {"results": 0, "response": []}
     
-    def get_games(self, date: Optional[str] = None, league: int = 12, season: int = None) -> Dict:
+    def get_games(self, date: Optional[str] = None, season: int = None) -> Dict:
         """Get NBA games"""
         if season is None:
             season = get_current_nba_season()
         
-        params = {"season": season, "league": league}
+        params = {"season": season}
         if date:
             params["date"] = date
         
-        return self._make_request(
-            "/games",
-            params=params,
-            cache_key=f"games_{date or 'today'}",
-            cache_ttl=self.CACHE_TTL["fixtures"]
-        )
+        # Bypass cache - make direct request
+        url = f"{self.BASE_URL}/games"
+        response = self.client.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
     
     def get_fixtures(self, date: Optional[str] = None, league: int = 1) -> Dict:
         """Get NBA fixtures (alias for games)"""
@@ -189,15 +186,11 @@ class NBAApiSportsClient:
         
         return self._make_request("/games", params=params)
     
-    def get_teams(self, league: int = None) -> Dict:
+    def get_teams(self) -> Dict:
         """Get all NBA teams"""
-        params = {}
-        if league:
-            params["league"] = league
-        
         return self._make_request(
             "/teams",
-            params=params,
+            params={},
             cache_key="teams",
             cache_ttl=self.CACHE_TTL["team_stats"]
         )
@@ -255,11 +248,11 @@ class NBAApiSportsClient:
             cache_ttl=self.CACHE_TTL["player_stats"]
         )
     
-    def get_standings(self, league: int = 12, season: int = None) -> Dict:
+    def get_standings(self, season: int = None) -> Dict:
         """Get NBA standings"""
         if season is None:
             season = get_current_nba_season()
-        params = {"season": season, "league": league}
+        params = {"season": season}
         
         return self._make_request(
             "/standings",
@@ -268,11 +261,11 @@ class NBAApiSportsClient:
             cache_ttl=self.CACHE_TTL["standings"]
         )
     
-    def get_injuries(self, league: int = 12, season: int = None) -> Dict:
+    def get_injuries(self, season: int = None) -> Dict:
         """Get NBA injuries"""
         if season is None:
             season = get_current_nba_season()
-        params = {"season": season, "league": league}
+        params = {"season": season}
         
         return self._make_request(
             "/injuries",
@@ -283,7 +276,6 @@ class NBAApiSportsClient:
     
     def get_odds(
         self,
-        league: int = 12,
         date: Optional[str] = None,
         bookmaker: int = 1,
         season: int = None
@@ -291,7 +283,7 @@ class NBAApiSportsClient:
         """Get NBA betting odds"""
         if season is None:
             season = get_current_nba_season()
-        params = {"bookmaker": bookmaker, "season": season, "league": league}
+        params = {"bookmaker": bookmaker, "season": season}
         if date:
             params["date"] = date
         else:
