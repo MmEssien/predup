@@ -470,7 +470,7 @@ async def get_fixtures(
     limit: int = 50,
     db: Session = Depends(get_db)
 ):
-    """Get fixtures from database"""
+    """Get fixtures from database (newest first)"""
     from src.data.database import SportEvent
     
     query = db.query(SportEvent)
@@ -482,7 +482,8 @@ async def get_fixtures(
     if status:
         query = query.filter(SportEvent.status == status)
     
-    query = query.order_by(SportEvent.start_time.asc()).limit(limit)
+    # Order by newest first (descending) to show 2026 fixtures
+    query = query.order_by(SportEvent.start_time.desc()).limit(limit)
     
     results = []
     for event in query.all():
