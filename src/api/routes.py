@@ -1244,3 +1244,27 @@ async def get_pipeline_status(db: Session = Depends(get_db)):
         "last_run": None,
         "is_running": False
     }
+
+@router.get("/debug/test-oddsportal")
+async def test_oddsportal():
+    """Test OddsPortal adapter"""
+    try:
+        from src.data.oddsportal_adapter import OddsPortalAdapter
+        adapter = OddsPortalAdapter()
+        available = adapter.is_available()
+        
+        result = {
+            "available": available,
+            "test": "OddsPortal adapter"
+        }
+        
+        if available:
+            # Try to get odds for a sample match
+            odds = adapter.get_odds("mlb", "Yankees", "Red Sox")
+            result["sample_odds"] = odds
+            
+        adapter.close()
+        return result
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
