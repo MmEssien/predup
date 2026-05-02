@@ -271,7 +271,14 @@ class OddsAPIAdapter:
             
         except httpx.HTTPStatusError as e:
             self._failed += 1
-            logger.warning(f"[ODDSAPI] HTTP {e.response.status_code}: {home_team} vs {away_team}")
+            if e.response.status_code == 401:
+                logger.error(f"[ODDSAPI] HTTP 401 - API key may be invalid or quota exceeded. "
+                            f"Check: https://the-odds-api.com/dashboard")
+                # Mark quota as exhausted to prevent further requests
+                self.quota.data["monthly"]["used"] = 500  # Assume max used
+                self.quota._save_usage()
+            else:
+                logger.warning(f"[ODDSAPI] HTTP {e.response.status_code}: {home_team} vs {away_team}")
             return None
         except Exception as e:
             self._failed += 1

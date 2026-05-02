@@ -57,7 +57,7 @@ class UnifiedOddsEngine:
     }
     
     def __init__(self):
-        # Initialize adapters
+        # Initialize adapters (lazy loaded in priority order)
         self._sportsgameodds = None
         self._oddsapi = None
         self._oddsportal = None
@@ -65,14 +65,14 @@ class UnifiedOddsEngine:
         # Stats
         self._total_requests = 0
         self._by_source = {
-            "sportsgameodds": 0,
-            "oddsapi": 0,
             "oddsportal": 0,
+            "oddsapi": 0,
+            "sportsgameodds": 0,
             "none": 0
         }
         self._latencies = []
         
-        logger.info("[ODDS ENGINE] Unified Odds Engine initialized")
+        logger.info("[ODDS ENGINE] Unified Odds Engine initialized - PRIMARY: OddsPortal")
     
     @property
     def sportsgameodds(self):
@@ -98,14 +98,14 @@ class UnifiedOddsEngine:
     
     @property
     def oddsportal(self):
-        """Lazy load OddsPortal adapter"""
-        if self._oddsportal is None:
-            try:
-                from src.data.oddsportal_adapter import OddsPortalAdapter
-                self._oddsportal = OddsPortalAdapter()
-            except Exception as e:
-                logger.warning(f"[ODDS ENGINE] OddsPortal unavailable: {e}")
-        return self._oddsportal
+        """Lazy load OddsPortal adapter - returns class, not instance"""
+        # OddsPortal is async, so we return the class and create instance per call
+        try:
+            from src.data.oddsportal_adapter import OddsPortalAdapter
+            return OddsPortalAdapter
+        except Exception as e:
+            logger.warning(f"[ODDS ENGINE] OddsPortal unavailable: {e}")
+            return None
     
     def get_odds(
         self, 
@@ -155,13 +155,36 @@ class UnifiedOddsEngine:
             print(f"[ODDS ENGINE DEBUG] Trying source: {src}")
             if src == "oddsportal" and self.oddsportal:
                 try:
-                    if self.oddsportal.is_available():
-                        result = self.oddsportal.get_odds(
-                            sport, home_team, away_team,
-                            use_cache=not force_refresh
-                        )
-                        if result:
-                            source = "oddsportal"
+                    # OddsPortal is async - create instance and run in thread
+                    adapter_class = self.oddsportal
+                    if adapter_class:
+                        # Create instance
+                        adapter = adapter_class()
+                        
+                        # Run async methods in thread
+                        import asyncio
+                        from concurrent.futures import ThreadPoolExecutor
+                        
+                        def run_async(coro):
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            return loop.run_until_complete(coro)
+                        
+                        # Check availability
+                        available = run_async(adapter.is_available())
+                        if available:
+                            result = run_async(
+                                adapter.get_odds(
+                                    sport, home_team, away_team,
+                                    use_cache=not force_refresh
+                                )
+                            )
+                            if result:
+                                source = "oddsportal"
+                        
+                        # Close adapter
+                        run_async(adapter.close())
+                        
                 except Exception as e:
                     logger.debug(f"[ODDS ENGINE] oddsportal failed: {e}")
                     continue

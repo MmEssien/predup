@@ -1251,19 +1251,53 @@ async def test_oddsportal():
     try:
         from src.data.oddsportal_adapter import OddsPortalAdapter
         adapter = OddsPortalAdapter()
-        available = adapter.is_available()
         
-        result = {
-            "available": available,
-            "test": "OddsPortal adapter"
-        }
+        try:
+            # Test 1: Check if Playwright starts
+            pw = await adapter._get_playwright()
+            result = {"playwright_start": "success"}
+        except Exception as e:
+            return {"error": f"Playwright start failed: {e}"}
         
-        if available:
-            # Try to get odds for a sample match
-            odds = adapter.get_odds("mlb", "Yankees", "Red Sox")
+        try:
+            # Test 2: Check if browser launches
+            browser = await adapter._get_browser()
+            result["browser_launch"] = "success"
+        except Exception as e:
+            return {**result, "error": f"Browser launch failed: {e}"}
+        
+        try:
+            # Test 3: Check if page creates
+            page = await adapter._get_page()
+            result["page_create"] = "success"
+        except Exception as e:
+            return {**result, "error": f"Page create failed: {e}"}
+        
+        try:
+            # Test 4: Try to navigate to a simple site first
+            await page.goto("https://www.google.com", timeout=10000)
+            result["google_nav"] = "success"
+        except Exception as e:
+            result["google_nav"] = f"failed: {e}"
+        
+        try:
+            # Test 5: Try OddsPortal
+            available = await adapter.is_available()
+            result["oddsportal_available"] = available
+        except Exception as e:
+            result["oddsportal_available"] = f"error: {e}"
+        
+        try:
+            # Test 6: Try to get odds for a sample match
+            odds = await adapter.get_odds("football", "Leeds United", "Burnley")
             result["sample_odds"] = odds
             
-        adapter.close()
+        except Exception as e:
+            result["sample_odds_error"] = str(e)
+            import traceback
+            result["sample_odds_traceback"] = traceback.format_exc()
+        
+        await adapter.close()
         return result
     except Exception as e:
         import traceback

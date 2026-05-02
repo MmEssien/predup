@@ -1,7 +1,7 @@
 """
 OddsPortal Adapter - TERTIARY Fallback
 ===================================
-Scrapes odds from OddsPortal using Playwright for JavaScript rendering.
+Scrapes odds from OddsPortal using Playwright (async version) for JavaScript rendering.
 
 Use as tertiary fallback when OddsAPI is unavailable.
 Note: OddsPortal has complex JS rendering - may need updates as site changes.
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class OddsPortalAdapter:
     """
-    OddsPortal scraper using Playwright.
+    OddsPortal scraper using Playwright Async.
     
     Use as tertiary fallback - works independently of OddsAPI.
     """
@@ -25,50 +25,51 @@ class OddsPortalAdapter:
     BASE_URL = 'https://www.oddsportal.com'
     
     def __init__(self):
+        self._playwright = None
         self._browser = None
         self._page = None
-        self._pw = None
         
         # Stats
         self._requests = 0
         self._success = 0
         self._failed = 0
     
-    def _get_playwright(self):
-        if self._pw is None:
+    async def _get_playwright(self):
+        if self._playwright is None:
             try:
-                from playwright.sync_api import sync_playwright
-                self._pw = sync_playwright().start()
+                from playwright.async_api import async_playwright
+                self._playwright = await async_playwright().start()
             except Exception as e:
                 logger.warning(f"[ODDSPORTAL] Failed to start Playwright: {e}")
                 raise
-        return self._pw
+        return self._playwright
     
-    def _get_browser(self):
+    async def _get_browser(self):
         if self._browser is None:
-            pw = self._get_playwright()
-            self._browser = pw.chromium.launch(
+            pw = await self._get_playwright()
+            self._browser = await pw.chromium.launch(
                 headless=True,
                 args=['--disable-gpu', '--no-sandbox']
             )
         return self._browser
     
-    def _get_page(self):
+    async def _get_page(self):
         if self._page is None:
-            browser = self._get_browser()
-            self._page = browser.new_page()
-            self._page.set_default_timeout(30000)
+            browser = await self._get_browser()
+            self._page = await browser.new_page()
+            await self._page.set_viewport_size({"width": 1920, "height": 1080})
         return self._page
     
-    def is_available(self) -> bool:
+    async def is_available(self) -> bool:
         try:
-            page = self._get_page()
-            page.goto(self.BASE_URL, timeout=15000)
+            page = await self._get_page()
+            await page.goto(self.BASE_URL, timeout=15000)
             return True
-        except:
+        except Exception as e:
+            logger.debug(f"[ODDSPORTAL] Availability check failed: {e}")
             return False
     
-    def get_odds(
+    async def get_odds(
         self,
         sport: str,
         home_team: str,
@@ -91,7 +92,7 @@ class OddsPortalAdapter:
         self._requests += 1
         
         try:
-            odds_data = self._search_and_get_odds(home_team, away_team, sport, league)
+            odds_data = await self._search_and_get_odds(home_team, away_team, sport, league)
             
             if odds_data:
                 self._success += 1
@@ -108,9 +109,9 @@ class OddsPortalAdapter:
             logger.warning(f"[ODDSPORTAL] Error: {e}")
             return None
     
-    def _search_and_get_odds(self, home: str, away: str, sport: str, league: str) -> Optional[Dict]:
+    async def _search_and_get_odds(self, home: str, away: str, sport: str, league: str) -> Optional[Dict]:
         """Search for match and extract odds"""
-        page = self._get_page()
+        page = await self._get_page()
         
         try:
             # Try to navigate using known URL patterns
@@ -123,27 +124,31 @@ class OddsPortalAdapter:
             ]
             
             for url in urls_to_try:
-                page.goto(url, timeout=30000)
-                page.wait_for_timeout(3000)
-                
-                # Scroll to trigger lazy load
-                page.evaluate('window.scrollBy(0, 300)')
-                page.wait_for_timeout(1000)
-                
-                odds = self._parse_current_page(page, home, away)
-                if odds:
-                    return odds
+                try:
+                    await page.goto(url, timeout=30000)
+                    await page.wait_for_timeout(3000)
+                    
+                    # Scroll to trigger lazy load
+                    await page.evaluate('window.scrollBy(0, 300)')
+                    await page.wait_for_timeout(1000)
+                    
+                    odds = await self._parse_current_page(page, home, away)
+                    if odds:
+                        return odds
+                except Exception as e:
+                    logger.debug(f"[ODDSPORTAL] URL {url} failed: {e}")
+                    continue
                 
         except Exception as e:
             logger.debug(f"[ODDSPORTAL] Search error: {e}")
         
         return None
     
-    def _parse_current_page(self, page, home: str, away: str) -> Optional[Dict]:
+    async def _parse_current_page(self, page, home: str, away: str) -> Optional[Dict]:
         """Parse odds from current page"""
         try:
             # Get page content
-            html = page.content()
+            html = await page.content()
             
             # Try to find odds using patterns
             # Look for decimal odds (numbers like 1.5, 2.0, 3.5 etc)
@@ -151,7 +156,7 @@ class OddsPortalAdapter:
             odds_pattern = re.compile(r'(\d+\.\d+)')
             
             # Search in page text
-            text = page.locator('body').inner_text()
+            text = await page.inner_text('body')
             
             # Find all decimal odds
             all_odds = [float(m) for m in odds_pattern.findall(text) 
@@ -188,16 +193,16 @@ class OddsPortalAdapter:
         }
         return mapping.get(sport.lower(), "football")
     
-    def close(self):
+    async def close(self):
         if self._page:
-            self._page.close()
+            await self._page.close()
             self._page = None
         if self._browser:
-            self._browser.close()
+            await self._browser.close()
             self._browser = None
-        if self._pw:
-            self._pw.stop()
-            self._pw = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
     
     def get_stats(self) -> Dict:
         return {
@@ -206,6 +211,3 @@ class OddsPortalAdapter:
             "failed": self._failed,
             "success_rate": self._success / max(self._requests, 1)
         }
-    
-    def __del__(self):
-        self.close()

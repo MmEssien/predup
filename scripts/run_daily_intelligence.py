@@ -20,22 +20,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 import os
 
-# Debug: Print environment variables
-print("DEBUG: ODDS_API_KEY set:", bool(os.getenv("ODDS_API_KEY")))
-print("DEBUG: ODDS_API_KEY length:", len(os.getenv("ODDS_API_KEY") or ""))
-
-# Debug: Write to file for capture
-debug_log = open("/tmp/debug.log", "w")
-
-def dprint(*args, **kwargs):
-    """Debug print that writes to file and stdout"""
-    print(*args, **kwargs)
-    print(*args, **kwargs, file=debug_log)
-    debug_log.flush()
-
 env_file = _root / ".env"
 if env_file.exists():
     load_dotenv(str(env_file))
+
+# Debug: Print environment variables
+print("DEBUG: ODDS_API_KEY set:", bool(os.getenv("ODDS_API_KEY")))
+print("DEBUG: ODDS_API_KEY length:", len(os.getenv("ODDS_API_KEY") or ""))
 
 logger = logging.getLogger(__name__)
 
@@ -397,51 +388,84 @@ class UnifiedIntelligenceEngine:
         return []
     
     def _get_football_fixtures(self) -> List[Dict]:
-        """Get football fixtures"""
+        """Get football fixtures using Football-Data.org (working API)"""
         try:
-            from src.data.api_football_client import ApiFootballClient
+            from src.data.api_client import FootballAPIClient
             
-            client = ApiFootballClient("")
+            client = FootballAPIClient()
             today = datetime.now().strftime("%Y-%m-%d")
-            data = client.get_fixtures(date=today)
-            client.close()
             
+            # Query multiple dates: today + next 3 days
             fixtures = []
-            for f in data.get("response", []):
-                teams = f.get("teams", {})
-                home = teams.get("home", {})
-                away = teams.get("away", {})
-                
-                if home.get("name") and away.get("name"):
-                    fixtures.append({
-                        "home_team": home.get("name"),
-                        "away_team": away.get("name"),
-                        "fixture_id": str(f.get("id")),
-                        "start_time": f.get("date"),
-                        "league": f.get("league", {}).get("name", "")
-                    })
+            for i in range(4):
+                query_date = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
+                try:
+                    data = client.get_matches(date=query_date)
+                    if not data or "matches" not in data:
+                        continue
+                    
+                    for m in data.get("matches", []):
+                        status = m.get("status", "")
+                        if status not in ["SCHEDULED", "TIMED", "IN_PLAY"]:
+                            continue
+                        
+                        home_team = m.get("homeTeam", {}).get("name", "")
+                        away_team = m.get("awayTeam", {}).get("name", "")
+                        
+                        if home_team and away_team:
+                            fixtures.append({
+                                "home_team": home_team,
+                                "away_team": away_team,
+                                "fixture_id": str(m.get("id")),
+                                "start_time": m.get("utcDate"),
+                                "league": m.get("competition", {}).get("code", "")
+                            })
+                except Exception as e:
+                    print(f"  DEBUG: Error fetching {query_date}: {e}")
+                    continue
             
+            client.close()
             return fixtures
         except Exception as e:
             self.api_failures["football"] = str(e)
+            print(f"  Football API error: {e}")
             return []
     
     def _get_mlb_fixtures(self) -> List[Dict]:
         """Get MLB fixtures"""
         try:
             from src.data.mlb_adapter import MLBAdapter
+            from datetime import datetime
             
             adapter = MLBAdapter()
             games = adapter.get_fixtures(days_ahead=3)
             adapter.close()
             
-            return [{
-                "home_team": g.get("home_team"),
-                "away_team": g.get("away_team"),
-                "fixture_id": str(g.get("game_id")),
-                "start_time": g.get("game_datetime"),
-                "league": "MLB"
-            } for g in games if g.get("home_team")]
+            results = []
+            for g in games:
+                home = g.get("home_team", {})
+                away = g.get("away_team", {})
+                if not isinstance(home, dict) or not isinstance(away, dict):
+                    continue
+                
+                start_time_str = g.get("start_time")
+                if not start_time_str:
+                    continue
+                
+                # Convert string to datetime
+                try:
+                    start_time = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                except:
+                    continue
+                
+                results.append({
+                    "home_team": home.get("name", ""),
+                    "away_team": away.get("name", ""),
+                    "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
+                    "start_time": start_time,
+                    "league": "MLB"
+                })
+            return results
         except Exception as e:
             self.api_failures["mlb"] = str(e)
             return []
