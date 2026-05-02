@@ -13,7 +13,7 @@ _root = Path(r"C:\Users\Strategic Shelter\.antigravity\AI\PredUp")
 sys.path.insert(0, str(_root))
 
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -257,6 +257,15 @@ class UnifiedIntelligenceEngine:
         if isinstance(away_team, dict):
             away_team = away_team.get("name", "")
         
+        # Parse start_time to datetime if it's a string
+        start_time = fixture.get("start_time")
+        if isinstance(start_time, str):
+            try:
+                # Handle ISO format with Z suffix
+                start_time = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            except:
+                start_time = None
+        
         # Check if exists
         event = self.db_session.query(SportEvent).filter(
             SportEvent.external_event_id == external_id,
@@ -267,7 +276,8 @@ class UnifiedIntelligenceEngine:
             # Update if needed
             event.home_team_name = home_team or event.home_team_name
             event.away_team_name = away_team or event.away_team_name
-            event.start_time = fixture.get("start_time", event.start_time)
+            if start_time:
+                event.start_time = start_time
             event.league = fixture.get("league", event.league)
             event.status = fixture.get("status", event.status)
             self.db_session.commit()
@@ -280,7 +290,7 @@ class UnifiedIntelligenceEngine:
             external_event_id=external_id,
             home_team_name=home_team,
             away_team_name=away_team,
-            start_time=fixture.get("start_time"),
+            start_time=start_time,
             status=fixture.get("status", "SCHEDULED")
         )
         self.db_session.add(event)
@@ -388,16 +398,15 @@ class UnifiedIntelligenceEngine:
         return []
     
     def _get_football_fixtures(self) -> List[Dict]:
-        """Get football fixtures using Football-Data.org (working API)"""
+        """Get football fixtures using football-data.org (PRIMARY until API-Football unsuspended)"""
         try:
             from src.data.api_client import FootballAPIClient
             
             client = FootballAPIClient()
-            today = datetime.now().strftime("%Y-%m-%d")
-            
-            # Query multiple dates: today + next 3 days
             fixtures = []
-            for i in range(4):
+            
+            # Query multiple dates: today + next 7 days
+            for i in range(8):
                 query_date = (datetime.now() + timedelta(days=i)).strftime("%Y-%m-%d")
                 try:
                     data = client.get_matches(date=query_date)
@@ -406,11 +415,13 @@ class UnifiedIntelligenceEngine:
                     
                     for m in data.get("matches", []):
                         status = m.get("status", "")
-                        if status not in ["SCHEDULED", "TIMED", "IN_PLAY"]:
+                        # Include SCHEDULED, TIMED, IN_PLAY, and recent FINISHED for display
+                        if status not in ["SCHEDULED", "TIMED", "IN_PLAY", "FINISHED"]:
                             continue
                         
                         home_team = m.get("homeTeam", {}).get("name", "")
                         away_team = m.get("awayTeam", {}).get("name", "")
+                        league_code = m.get("competition", {}).get("code", "")
                         
                         if home_team and away_team:
                             fixtures.append({
@@ -418,17 +429,26 @@ class UnifiedIntelligenceEngine:
                                 "away_team": away_team,
                                 "fixture_id": str(m.get("id")),
                                 "start_time": m.get("utcDate"),
-                                "league": m.get("competition", {}).get("code", "")
+                                "league": league_code,
+                                "status": status
                             })
                 except Exception as e:
-                    print(f"  DEBUG: Error fetching {query_date}: {e}")
+                    print(f"  Error fetching {query_date}: {e}")
                     continue
             
             client.close()
+            
+            if not fixtures:
+                print(f"  No fixtures found (may be off-season)")
+            else:
+                scheduled = [f for f in fixtures if f.get("status") in ["SCHEDULED", "TIMED", "IN_PLAY"]]
+                finished = [f for f in fixtures if f.get("status") == "FINISHED"]
+                print(f"  Found {len(fixtures)} fixtures ({len(scheduled)} upcoming, {len(finished)} finished)")
+            
             return fixtures
         except Exception as e:
             self.api_failures["football"] = str(e)
-            print(f"  Football API error: {e}")
+            print(f"  Football-Data.org error: {e}")
             return []
     
     def _get_mlb_fixtures(self) -> List[Dict]:
