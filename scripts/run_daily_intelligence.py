@@ -452,25 +452,24 @@ class UnifiedIntelligenceEngine:
             return []
     
     def _get_mlb_fixtures(self) -> List[Dict]:
-        """Get MLB fixtures using API-Sports (PRIMARY)"""
+        """Get MLB fixtures using ESPN (FREE, real-time 2026)"""
         try:
-            from src.data.mlb_adapter import MLBAdapter
-            from datetime import datetime
+            from src.data.espn_adapter import ESPNAdapter
             
-            adapter = MLBAdapter()
-            games = adapter.get_fixtures(days_ahead=3)
+            adapter = ESPNAdapter()
+            games = adapter.get_mlb_fixtures(days_ahead=3)
             adapter.close()
             
             if not games:
-                print(f"  No MLB fixtures found")
+                print(f"  No MLB fixtures found (ESPN)")
                 return []
             
-            print(f"  Found {len(games)} MLB fixtures")
+            print(f"  Found {len(games)} MLB fixtures (ESPN, 2026)")
             
             return [{
-                "home_team": g.get("home_team", {}).get("name", "") if isinstance(g.get("home_team"), dict) else str(g.get("home_team", "")),
-                "away_team": g.get("away_team", {}).get("name", "") if isinstance(g.get("away_team"), dict) else str(g.get("away_team", "")),
-                "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
+                "home_team": g.get("home_team", ""),
+                "away_team": g.get("away_team", ""),
+                "fixture_id": str(g.get("fixture_id", "")),
                 "start_time": g.get("start_time"),
                 "league": "MLB"
             } for g in games if g.get("home_team")]
@@ -480,25 +479,24 @@ class UnifiedIntelligenceEngine:
             return []
     
     def _get_nba_fixtures(self) -> List[Dict]:
-        """Get NBA fixtures using API-Sports (PRIMARY)"""
+        """Get NBA fixtures using ESPN (FREE, real-time 2026)"""
         try:
-            from src.data.nba_adapter import NBAAdapter
-            from datetime import datetime
+            from src.data.espn_adapter import ESPNAdapter
             
-            adapter = NBAAdapter()
-            games = adapter.get_fixtures(days_ahead=3)
+            adapter = ESPNAdapter()
+            games = adapter.get_nba_fixtures(days_ahead=3)
             adapter.close()
             
             if not games:
-                print(f"  No NBA fixtures found")
+                print(f"  No NBA fixtures found (ESPN)")
                 return []
             
-            print(f"  Found {len(games)} NBA fixtures")
+            print(f"  Found {len(games)} NBA fixtures (ESPN, 2026)")
             
             return [{
-                "home_team": g.get("home_team", {}).get("name", "") if isinstance(g.get("home_team"), dict) else g.get("home_team", ""),
-                "away_team": g.get("away_team", {}).get("name", "") if isinstance(g.get("away_team"), dict) else g.get("away_team", ""),
-                "fixture_id": str(g.get("event_id", g.get("game_pk", ""))),
+                "home_team": g.get("home_team", ""),
+                "away_team": g.get("away_team", ""),
+                "fixture_id": str(g.get("fixture_id", "")),
                 "start_time": g.get("start_time"),
                 "league": "NBA"
             } for g in games if g.get("home_team")]
