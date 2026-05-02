@@ -1,18 +1,65 @@
+# Python/excluding
 venv/
-.cache/
-cache/
-scratch/
-notebooks/
-tests/
-alembic.bak/
-predup.db
-test.db
+venv/
 __pycache__/
 *.pyc
-.git/
+*.pyo
+*.pyd
+.Python
+
+# Virtual/env
+env/
+ENV/
+
+# Cache directories
+.cache/
+cache/
+.pytest_cache/
+.mypy_cache/
+
+# Data files not needed for deployment
+predup.db
+test.db
+*.db
+*.sqlite
+*.json
+*.csv
+*.pkl
+*.log
+
+# Models (large ML model files)
+models/
+data/shadow_mode.json
+
+# Exclude everything in root except necessary files
+/*
+!/src/
+!/scripts/
+!/requirements.txt
+!/Dockerfile
+!/alembic.ini
+!/AGENTS.md
+
+# Exclude specific scripts except the one we need
+scripts/*
+!scripts/run_daily_intelligence.py
+
+# Docs and markdown
 *.md
+docs/
+
+# Config files not needed
 .env
-.env.example
-.env.railway.example
+.env.*
 fly.toml
 railway.json
+docker-compose.yml
+Procfile
+
+# Git
+.git/
+.gitignore
+
+# OS files
+.DS_Store
+Thumbs.db
