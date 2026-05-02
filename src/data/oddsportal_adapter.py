@@ -36,8 +36,12 @@ class OddsPortalAdapter:
     
     def _get_playwright(self):
         if self._pw is None:
-            from playwright.sync_api import sync_playwright
-            self._pw = sync_playwright().start()
+            try:
+                from playwright.sync_api import sync_playwright
+                self._pw = sync_playwright().start()
+            except Exception as e:
+                logger.warning(f"[ODDSPORTAL] Failed to start Playwright: {e}")
+                raise
         return self._pw
     
     def _get_browser(self):

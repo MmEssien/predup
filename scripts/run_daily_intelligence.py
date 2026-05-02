@@ -23,6 +23,16 @@ import os
 # Debug: Print environment variables
 print("DEBUG: ODDS_API_KEY set:", bool(os.getenv("ODDS_API_KEY")))
 print("DEBUG: ODDS_API_KEY length:", len(os.getenv("ODDS_API_KEY") or ""))
+
+# Debug: Write to file for capture
+debug_log = open("/tmp/debug.log", "w")
+
+def dprint(*args, **kwargs):
+    """Debug print that writes to file and stdout"""
+    print(*args, **kwargs)
+    print(*args, **kwargs, file=debug_log)
+    debug_log.flush()
+
 env_file = _root / ".env"
 if env_file.exists():
     load_dotenv(str(env_file))
