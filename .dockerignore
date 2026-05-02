@@ -1,25 +1,20 @@
-# Python/excluding
-venv/
-venv/
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-
-# Virtual/env
+venv/
 env/
 ENV/
 
-# Cache directories
+# Cache
 .cache/
 cache/
 .pytest_cache/
 .mypy_cache/
 
-# Data files not needed for deployment
-predup.db
-test.db
+# Data files
 *.db
 *.sqlite
 *.json
@@ -27,39 +22,120 @@ test.db
 *.pkl
 *.log
 
-# Models (large ML model files)
+# Models
 models/
-data/shadow_mode.json
 
-# Exclude everything in root except necessary files
-/*
-!/src/
-!/scripts/
-!/requirements.txt
-!/Dockerfile
-!/alembic.ini
-!/AGENTS.md
-
-# Exclude specific scripts except the one we need
-scripts/*
-!scripts/run_daily_intelligence.py
-
-# Docs and markdown
-*.md
+# Docs
 docs/
+*.md
 
-# Config files not needed
+# Config
 .env
 .env.*
 fly.toml
 railway.json
 docker-compose.yml
 Procfile
+AGENTS.md
+alembic.ini
+
+# Scripts - exclude all except run_daily_intelligence.py
+scripts/analyze_importance.py
+scripts/analyze_performance_segments.py
+scripts/api_status.py
+scripts/backtest.py
+scripts/backtest_intelligence_engine.py
+scripts/calibration_audit.py
+scripts/calibration_final_validation.py
+scripts/check_2026_games.py
+scripts/check_api_fixtures.py
+scripts/check_comps.py
+scripts/check_current_odds.py
+scripts/check_fixtures.py
+scripts/check_free_plan.py
+scripts/check_seasons.py
+scripts/clv_tracking_workflow.py
+scripts/daily_mlb_predictions.py
+scripts/debug_api.py
+scripts/debug_api2.py
+scripts/debug_mlb_games_v2.py
+scripts/fetch_fixtures_simple.py
+scripts/fetch_mlb_direct.py
+scripts/fetch_mlb_with_odds.py
+scripts/fetch_with_season.py
+scripts/final_validation.py
+scripts/find_league_ids.py
+scripts/get_mlb_games_2024.py
+scripts/get_mlb_games_final.py
+scripts/get_mlb_teams.py
+scripts/improve_leagues.py
+scripts/ingest_data.py
+scripts/ingest_historical.py
+scripts/ingest_upcoming.py
+scripts/init_db.py
+scripts/inspect_mlb_game.py
+scripts/live_betting_pipeline.py
+scripts/migrate_intelligence_tables.py
+scripts/migrate_prediction_record.py
+scripts/mlb_backtest.py
+scripts/mlb_baseline_model.py
+scripts/mlb_closed_loop.py
+scripts/mlb_closed_loop_v2.py
+scripts/mlb_complete_pipeline.py
+scripts/mlb_data_test.py
+scripts/mlb_edge_test.py
+scripts/mlb_final_demo.py
+scripts/mlb_model.py
+scripts/mlb_prediction_engine.py
+scripts/mlb_real_data_pipeline.py
+scripts/mlb_statsapi_features.py
+scripts/mlb_validation.py
+scripts/mlb_xgboost_model.py
+scripts/nba_backtest.py
+scripts/nba_closed_loop.py
+scripts/nba_daily_predictions.py
+scripts/nba_prediction_engine.py
+scripts/nba_shadow_mode.py
+scripts/odds_intelligence_analysis.py
+scripts/optimize_wave1_thresholds.py
+scripts/optimize_with_real_odds.py
+scripts/per_league.py
+scripts/per_league_analysis.py
+scripts/production_predict.py
+scripts/production_status.py
+scripts/proper_calibration_validation.py
+scripts/run_calibration_validation.py
+scripts/run_settlement.py
+scripts/scheduled_jobs.py
+scripts/scheduled_update.py
+scripts/shadow_mode_tracker.py
+scripts/test_all_baseball_leagues.py
+scripts/test_api_key.py
+scripts/test_api_key_format.py
+scripts/test_api_sports_baseball.py
+scripts/test_api_suggested_dates.py
+scripts/test_apis.py
+scripts/test_make_decision.py
+scripts/test_odds_api.py
+scripts/test_odds_api_formats.py
+scripts/test_odds_api_mlb.py
+scripts/test_odds_integration.py
+scripts/test_the_odds_api.py
+scripts/train_model.py
+scripts/tune_hyperparameters.py
+scripts/validate_all_leagues.py
+scripts/validate_optimized.py
+scripts/validate_specialized.py
+scripts/validate_wave1.py
+scripts/volatility_analysis.py
+
+# Data
+data/shadow_mode.json
 
 # Git
 .git/
 .gitignore
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db
