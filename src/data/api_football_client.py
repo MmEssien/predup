@@ -43,13 +43,15 @@ class ApiFootballClient:
         response.raise_for_status()
         return response.json()
 
-    def get_fixtures(self, date: Optional[str] = None, league_id: Optional[int] = None) -> dict:
+    def get_fixtures(self, date: Optional[str] = None, league_id: Optional[int] = None, season: Optional[int] = None) -> dict:
         """Fetch fixtures by date or league"""
         params = {}
         if date:
             params["date"] = date
         if league_id:
             params["league"] = league_id
+        if season:
+            params["season"] = season
         response = self.client.get(f"{self.base_url}/fixtures", params=params)
         response.raise_for_status()
         return response.json()

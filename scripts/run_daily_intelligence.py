@@ -398,7 +398,7 @@ class UnifiedIntelligenceEngine:
         return []
     
     def _get_football_fixtures(self) -> List[Dict]:
-        """Get football fixtures using football-data.org (PRIMARY until API-Football unsuspended)"""
+        """Get football fixtures using football-data.org (API-Football free plan limited to 2022-2024)"""
         try:
             from src.data.api_client import FootballAPIClient
             
