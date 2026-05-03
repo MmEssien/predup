@@ -32,7 +32,6 @@ docs/
 # Config
 .env
 .env.*
-fly.toml
 railway.json
 docker-compose.yml
 Procfile
