@@ -1,10 +1,16 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
-  "builds": [
-    { "src": "/api/(.*)", "use": "@vercel/python", "config": {} }
-  ],
-  "routes": [
-    { "src": "/(.*)", "dest": "/api/$1" }
+  "functions": {
+    "src/api/main.py": {
+      "maxDuration": 30,
+      "memory": 1024,
+      "excludeFiles": ["scripts/**", "tests/**", "__pycache__/**", "*.pyc", ".cache/**", "docs/**", "test_*.py", "debug_*.py", "check_*.py"]
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/src/api/main.py"
+    }
   ]
 }
